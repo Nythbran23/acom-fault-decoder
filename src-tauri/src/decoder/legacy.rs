@@ -332,6 +332,8 @@ pub struct LegacySignature {
     pub analog:        LegacyAnalog,
     pub registers:     DigitalRegisters,
     pub substitutions: Vec<CharSubstitution>,
+    /// True if checksum verified (confirmed algorithm: seed=0xA5 XOR cascade)
+    pub checksum_ok:   bool,
     pub raw_bytes:     Vec<u8>,
 }
 
@@ -409,6 +411,32 @@ pub fn parse_legacy(
     // ── Registers: bytes 12-16 ────────────────────────────────────────────────
     let registers = decode_registers(bytes[12], bytes[13], bytes[14], bytes[15], bytes[16]);
 
+    // ── Checksum (confirmed algorithm) ────────────────────────────────────────
+    // seed=0xA5 XOR mode_numeric XOR secondary XOR pfwd XOR rfl XOR inp
+    //           XOR paav XOR g2c XOR ipm XOR hvm XOR temp
+    //           XOR buffer0 XOR buffer1 XOR port1 XOR port3 XOR port4
+    // Counter byte (bytes[0]) and GAMA byte (bytes[9]) are NOT included.
+    let mode_numeric: u8 = match state.mode.code.as_str() {
+        "pn" => 0x01, "pr" => 0x02, "sb" => 0x03, "tr" => 0x04, _ => 0x00,
+    };
+    let computed_cs = 0xA5u8
+        ^ mode_numeric
+        ^ bytes[2]   // secondary
+        ^ bytes[3]   // pfwd
+        ^ bytes[4]   // rfl
+        ^ bytes[5]   // inp
+        ^ bytes[6]   // paav
+        ^ bytes[7]   // g2c
+        ^ bytes[8]   // ipm
+        ^ bytes[10]  // hvm (bytes[9] = GAMA display byte, not checksummed)
+        ^ bytes[11]  // temp
+        ^ bytes[12]  // buffer0
+        ^ bytes[13]  // buffer1
+        ^ bytes[14]  // port1
+        ^ bytes[15]  // port3
+        ^ bytes[16]; // port4
+    let checksum_ok = computed_cs == bytes[17];
+
     Ok(LegacySignature {
         model,
         raw_groups: groups.to_vec(),
@@ -416,6 +444,7 @@ pub fn parse_legacy(
         analog,
         registers,
         substitutions,
+        checksum_ok,
         raw_bytes: all_bytes,
     })
 }
@@ -483,6 +512,20 @@ mod tests {
         let g = groups("62", "3asb26", "080000", "000008", "3baa94", "0320dc", "d77fe1");
         let sig = parse_legacy(LegacyModel::Acom1000, &g).unwrap();
         assert!((sig.analog.pfwd_w - 2.0).abs() < 0.01, "pfwd 8²/32 = 2W");
+    }
+
+    #[test]
+    fn checksum_valid_1000() {
+        let g = groups("62", "3asb26", "000000", "000008", "3baa94", "0320dc", "d77fe1");
+        let sig = parse_legacy(LegacyModel::Acom1000, &g).unwrap();
+        assert!(sig.checksum_ok, "1000 sample checksum should be valid");
+    }
+
+    #[test]
+    fn checksum_valid_1500() {
+        let g = groups("b6", "1atr6b", "000000", "009000", "1BA29D", "F723DE", "D47FC4");
+        let sig = parse_legacy(LegacyModel::Acom1500, &g).unwrap();
+        assert!(sig.checksum_ok, "1500 sample checksum should be valid");
     }
 
     #[test]

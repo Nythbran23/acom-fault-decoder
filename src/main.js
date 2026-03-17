@@ -399,9 +399,10 @@ function renderLegacyResults(sig) {
     html += renderReg('PORT 4', sig.registers.port4);
     html += `</div>`;
 
-    // 5. Checksum
-    const csCls = sig.checksum_ok ? 'fault-ok' : 'fault-soft';
-    html += `<div style="font-size:12px; margin-top:10px;">Checksum: <span class="${csCls}">${sig.checksum_ok ? '✓ Valid' : '✗ Mismatch'}</span></div>`;
+    // 5. Checksum (confirmed algorithm)
+    const csCls = sig.checksum_ok ? 'fault-ok' : 'fault-hard';
+    const csText = sig.checksum_ok ? '✓ Valid' : '✗ Mismatch — check for transcription errors';
+    html += `<div style="font-size:12px; margin-top:10px;">Checksum: <span class="${csCls}">${csText}</span></div>`;
 
     $('results').innerHTML = html;
 }
