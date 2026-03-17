@@ -1,0 +1,549 @@
+// ============================================================================
+// main.js — ACOM Fault Decoder frontend logic.
+//
+// Uses window.__TAURI__ (injected by Tauri when withGlobalTauri=true).
+// invoke() replaces window.electronAPI.X()
+// listen()  replaces window.electronAPI.onX()
+// ============================================================================
+
+const { invoke } = window.__TAURI__.core;
+const { listen }  = window.__TAURI__.event;
+
+// ── Sample signature (from Excel verification capture) ───────────────────────
+const SAMPLE_LINES = [
+    "0000 0000 0002 0000 0000 0000 0000 0000 0000 0000 0000 0041 0040 0000 0863 F71A",
+    "0000 0000 0000 0000 0000 00FC 13A0 01FE 0000 0000 0000 0129 0000 0000 0000 E83D",
+    "0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0120 0000 01F4 FCEC",
+    "0000 0000 0000 0000 0000 0000 0000 0000 003E 0000 0000 8059 0080 0104 0291 7B54"
+];
+
+// ── State ────────────────────────────────────────────────────────────────────
+let isConnected = false;
+let captureCounter = 0;
+let signatureHistory = [];
+let lastResult = null;
+
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+// ============================================================================
+// Initialisation
+// ============================================================================
+window.addEventListener('DOMContentLoaded', async () => {
+    await refreshPorts();
+
+    // 500S / Global controls
+    $('refreshPortsBtn').addEventListener('click', refreshPorts);
+    $('connectSerialBtn').addEventListener('click', connectSerial);
+    $('disconnectSerialBtn').addEventListener('click', disconnectSerial);
+    $('decodeBtn').addEventListener('click', decodeManual);
+    $('sampleBtn').addEventListener('click', loadSample);
+    $('clearBtn').addEventListener('click', clearAll);
+    $('clearHistoryBtn').addEventListener('click', clearHistory);
+
+    // Legacy controls
+    $('legacyDecodeBtn').addEventListener('click', decodeLegacy);
+    $('legacySampleBtn').addEventListener('click', loadLegacySample);
+    $('legacyClearBtn').addEventListener('click', clearLegacy);
+
+    for (let i = 1; i <= 4; i++) {
+        $(`line${i}`).addEventListener('input',   () => autoSpaceHex(i));
+        $(`line${i}`).addEventListener('change',  () => validateLineChecksum(i));
+    }
+
+    // Tauri event listeners
+    await listen('serial-line-received', e => onLineReceived(e.payload));
+    await listen('serial-signature-complete', e => onSignatureComplete(e.payload.lines));
+    await listen('serial-error', e => { setStatus('⚠ Serial error: ' + e.payload); updateSerialStatus('Error', '#e74c3c'); });
+    await listen('serial-disconnected', () => onDisconnected());
+});
+
+// ============================================================================
+// Port management
+// ============================================================================
+async function refreshPorts() {
+    const ports = await invoke('list_serial_ports');
+    const sel = $('portSelect');
+    sel.innerHTML = '<option value="">— select port —</option>';
+    ports.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.path;
+        const label = [p.path, p.manufacturer, p.product].filter(Boolean).join(' — ');
+        opt.textContent = label;
+        sel.appendChild(opt);
+    });
+    if (ports.length === 1) sel.value = ports[0].path;
+}
+
+async function connectSerial() {
+    const port = $('portSelect').value;
+    if (!port) { setStatus('⚠ Select a port first'); return; }
+    updateSerialStatus('Connecting…', '#f39c12');
+    try {
+        await invoke('connect_serial', { port });
+        isConnected = true;
+        $('connectSerialBtn').style.display = 'none';
+        $('disconnectSerialBtn').style.display = '';
+        $('serialCapture').style.display = '';
+        updateSerialStatus('Connected: ' + port, '#27ae60');
+        setStatus('Connected to ' + port);
+        updateCaptureStatus('⏳ Waiting for ACOM data…<br>Set amp: MENU → FAULTS LOG');
+    } catch (err) {
+        updateSerialStatus('Failed', '#e74c3c');
+        setStatus('⚠ Connection failed: ' + err);
+    }
+}
+
+async function disconnectSerial() {
+    await invoke('disconnect_serial');
+    onDisconnected();
+}
+
+function onDisconnected() {
+    isConnected = false;
+    $('connectSerialBtn').style.display = '';
+    $('disconnectSerialBtn').style.display = 'none';
+    $('serialCapture').style.display = 'none';
+    updateSerialStatus('Not connected', '#7f8c8d');
+    setStatus('Disconnected');
+}
+
+// ============================================================================
+// Serial capture callbacks
+// ============================================================================
+function onLineReceived({ line_number, line }) {
+    const prog = $('captureProgress');
+    const div = document.createElement('div');
+    div.style.cssText = 'margin-top:4px; color:#27ae60; font-size:11px;';
+    div.textContent = `✓ Line ${line_number}/4`;
+    prog.appendChild(div);
+}
+
+async function onSignatureComplete(lines) {
+    captureCounter++;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+    const filename = `acom_sig_${captureCounter}_${ts}.txt`;
+    const data = buildTextCapture(captureCounter, lines);
+
+    try {
+        await invoke('auto_save_signature', { data, filename });
+    } catch (e) { console.warn('Auto-save failed:', e); }
+
+    addToHistory({ id: captureCounter, timestamp: new Date(), filename, lines });
+
+    for (let i = 0; i < 4; i++) { $(`line${i+1}`).value = lines[i]; autoSpaceHex(i+1); }
+    updateCaptureStatus(`✅ Captured #${captureCounter} — decoding…`);
+    $('captureProgress').innerHTML = '';
+
+    setTimeout(async () => {
+        await decodeLines(lines);
+        updateCaptureStatus(`⏳ Waiting… (${captureCounter} captured)`);
+    }, 400);
+}
+
+// ============================================================================
+// Manual decode (500S / 600S / 700S)
+// ============================================================================
+async function decodeManual() {
+    const lines = [1,2,3,4].map(i => $(`line${i}`).value.trim());
+    if (lines.some(l => !l)) { setStatus('⚠ All 4 lines required'); return; }
+    await decodeLines(lines);
+}
+
+async function decodeLines(lines) {
+    setStatus('Decoding…');
+    try {
+        const response = await invoke('decode_signature', { lines });
+        lastResult = response;
+        renderResults(response.signature, response.diagnosis, lines);
+    } catch (err) {
+        $('results').innerHTML = `<div class="fault-hard" style="padding:20px">⚠ Decode error: ${err}</div>`;
+        setStatus('⚠ Decode failed: ' + err);
+    }
+}
+
+// ============================================================================
+// Render results (500S Family)
+// ============================================================================
+function renderResults(sig, diagnosis, rawLines) {
+    const faults = sig.active_faults ?? [];
+    const hard  = faults.filter(f => f.fault_type === 'HardFault');
+    const soft  = faults.filter(f => f.fault_type === 'SoftFault');
+    const warn  = faults.filter(f => f.fault_type === 'Warning');
+
+    let html = '';
+    html += `<div class="decode-header">═══════════════════════════════════════════════════════════════\n`;
+    html += `  ACOM HARD FAULT SIGNATURE DECODE  —  ${new Date().toLocaleString()}\n`;
+    html += `═══════════════════════════════════════════════════════════════</div>`;
+
+    const clock = sig.clock;
+    html += card('Amplifier State', [
+        ['Mode',         decodeAmpMode(sig.amp_mode)],
+        ['Jump State',   `0x${sig.jump_state.toString(16).toUpperCase().padStart(4,'0')}`],
+        ['Working Time', `${clock.hours}h ${String(clock.minutes).padStart(2,'0')}m ${String(clock.seconds).padStart(2,'0')}s`],
+    ]);
+
+    html += `<hr class="decode-separator">`;
+    html += `<div style="color:#bdc3c7; font-weight:700; margin-bottom:8px;">ACTIVE FAULT CODES</div>`;
+    if (faults.length === 0) {
+        html += `<div class="fault-warning" style="padding:8px">✓ No active fault codes</div>`;
+    } else {
+        faults.forEach(f => {
+            const cls = f.fault_type === 'HardFault' ? 'fault-hard' : f.fault_type === 'SoftFault' ? 'fault-soft' : 'fault-warning';
+            const badge = f.fault_type === 'HardFault' ? '⛔ HF' : f.fault_type === 'SoftFault' ? '⚠ SF' : '● WRN';
+            html += `<div class="fault-item"><span class="${cls}">${badge} &nbsp; 0x${f.code.toString(16).toUpperCase().padStart(2,'0')}</span> &nbsp; ${f.condition}</div>`;
+        });
+    }
+
+    html += renderDiagnosis(diagnosis);
+
+    const rf = sig.rf;
+    html += card('RF Parameters', [
+        ['Frequency',       `${(rf.frequency_khz/1000).toFixed(3)} MHz`],
+        ['Forward Power',   `${rf.forward_power_w.toFixed(1)} W`],
+        ['Reflected Power', `${rf.reflected_power_w.toFixed(1)} W`],
+        ['SWR (calculated)', rf.swr != null ? rf.swr.toFixed(2) : '—'],
+    ]);
+
+    const v = sig.voltages;
+    html += card('PSU Voltages', [
+        ['VCC26 (nom. 26.0 V)', `${v.vcc26_v.toFixed(1)} V`, Math.abs(v.vcc26_v - 26.0) > 1.5],
+        ['VCC5  (nom. 5.0 V)',  `${v.vcc5_v.toFixed(3)} V`,  Math.abs(v.vcc5_v - 5.0) > 0.3],
+        ['HV1   (nom. 50 V)',   `${v.hv1_v.toFixed(1)} V`,   Math.abs(v.hv1_v - 50.0) > 3.0],
+        ['HV2', v.hv2_v != null ? `${v.hv2_v.toFixed(1)} V` : 'N/A (PAM2 not fitted)'],
+    ]);
+
+    const c = sig.currents;
+    const t = sig.temperatures;
+    html += card('PAM Currents & Temperatures', [
+        ['PAM1 Current',  `${c.pam1_a.toFixed(3)} A`],
+        ['PAM2 Current',  c.pam2_a != null ? `${c.pam2_a.toFixed(3)} A` : 'N/A'],
+        ['PAM1 Temp',     t.pam1_celsius != null ? `${t.pam1_celsius.toFixed(1)} °C` : 'N/A'],
+        ['PAM2 Temp',     t.pam2_celsius != null ? `${t.pam2_celsius.toFixed(1)} °C` : 'N/A'],
+        ['PSU1 Temp',     t.psu1_celsius != null ? `${t.psu1_celsius.toFixed(1)} °C` : 'N/A'],
+        ['PSU2 Temp',     t.psu2_celsius != null ? `${t.psu2_celsius.toFixed(1)} °C` : 'N/A'],
+    ]);
+
+    const pw = sig.power;
+    html += card('DC Power', [
+        ['PAM1 Input',       `${pw.pam1_dc_w.toFixed(1)} W`],
+        ['PAM2 Input',       `${pw.pam2_dc_w.toFixed(1)} W`],
+        ['PAM1 Dissipation', `${pw.pam1_dis_w.toFixed(1)} W`],
+        ['PAM2 Dissipation', `${pw.pam2_dis_w.toFixed(1)} W`],
+    ]);
+
+    const bm = sig.bias.measured, bn = sig.bias.nominal;
+    html += card('Bias Voltages (Measured / Nominal)', [
+        ['bias_1a', `${bm.v_1a.toFixed(3)} V  /  ${bn.v_1a.toFixed(3)} V`],
+        ['bias_1b', `${bm.v_1b.toFixed(3)} V  /  ${bn.v_1b.toFixed(3)} V`],
+        ['bias_1c', `${bm.v_1c.toFixed(3)} V  /  ${bn.v_1c.toFixed(3)} V`],
+        ['bias_1d', `${bm.v_1d.toFixed(3)} V  /  ${bn.v_1d.toFixed(3)} V`],
+        ['bias_2a', `${bm.v_2a.toFixed(3)} V  /  ${bn.v_2a.toFixed(3)} V`],
+        ['bias_2b', `${bm.v_2b.toFixed(3)} V  /  ${bn.v_2b.toFixed(3)} V`],
+        ['bias_2c', `${bm.v_2c.toFixed(3)} V  /  ${bn.v_2c.toFixed(3)} V`],
+        ['bias_2d', `${bm.v_2d.toFixed(3)} V  /  ${bn.v_2d.toFixed(3)} V`],
+    ]);
+
+    const cat = sig.cat;
+    html += card('CAT Interface', [
+        ['Settings Raw',   `0x${cat.settings_raw.toString(16).toUpperCase().padStart(4,'0')}`],
+        ['Command Set',    catCommandSet(cat.command_set)],
+        ['Baud Rate',      catBaud(cat.baud_rate_code)],
+        ['Byte Spacing',   `${cat.byte_spacing_us} µs`],
+        ['Poll Interval',  `${cat.poll_interval_ms} ms`],
+    ]);
+
+    html += card('Diagnostics', [
+        ['Error Source', `0x${sig.error_source.toString(16).toUpperCase().padStart(4,'0')}`],
+        ['LPF Register', `0x${sig.lpf_status.raw.toString(16).toUpperCase().padStart(4,'0')}`],
+        ['Band Data',    `${sig.band_data.millivolts} mV`],
+    ]);
+
+    html += flagCard('User Flags', sig.user_flags, {
+        'EXTRA_COOLING':        ['Extra Cooling',     false],
+        'AUTO_OPERATE':         ['Auto Operate',      false],
+        'TEMP_UNIT_FAHRENHEIT': ['Temp: Fahrenheit',  false],
+        'BUZZER_ENABLED':       ['Buzzer',            false],
+        'ATAC_TYPE_AUTO':       ['ATAC: Auto',        false],
+        'OPERATE_UNLOCKED':     ['Operate Unlocked',  false],
+        'SHUTDOWN_HARD_FAULT':  ['Last Shutdown: HF', true ],
+    });
+
+    html += flagCard('Amp Flags 1', sig.amp_flags1, {
+        'TURN_ON_PWR_BTN':   ['ON: Front Button',  false],
+        'TURN_ON_REMOTE':    ['ON: Remote',        false],
+        'TURN_ON_RS232':     ['ON: RS232',         false],
+        'BIAS_MON_DISABLED': ['Bias Mon Disabled', true ],
+        'BIAS_ENABLED':      ['Bias: ON',          false],
+        'HV_MON_DISABLED':   ['HV Mon Disabled',   true ],
+        'HV_ON':             ['HV: ON',            false],
+        'ATAC_IN_PROGRESS':  ['ATAC Active',       false],
+        'LAST_CMD_RS232':    ['Last Cmd: RS232',   false],
+    });
+
+    html += flagCard('Amp Flags 2', sig.amp_flags2, {
+        'KEYIN_MON':            ['KEYIN Mon',       false],
+        'KEYIN_TX_REQUEST':     ['KEYIN: TX Req',   false],
+        'INPUT_RELAY_CLOSED':   ['Input Relay: ✓',  false],
+        'TX_ACCESS':            ['TX Access: ON',   false],
+        'OUTPUT_RELAY_CLOSED':  ['Output Relay: ✓', false],
+        'ORC_MON':              ['ORC Mon',         false],
+        'ORC':                  ['ORC: ✓ Closed',   false],
+        'LPF_TUNED':            ['LPF Tuned',       false],
+        'ATU_TUNED':            ['ATU Tuned',       false],
+        'ASEL_TUNED':           ['ASEL Tuned',      false],
+        'HF_ERR_DISABLED':      ['HF Disabled',     true ],
+        'SF_ERR_DISABLED':      ['SF Disabled',     true ],
+        'WRN_DISABLED':         ['WRN Disabled',    true ],
+    });
+
+    $('results').innerHTML = html;
+    setStatus(`✓ Decode complete — ${hard.length} hard, ${soft.length} soft`);
+    document.querySelector('.split-right').scrollTop = 0;
+}
+
+// ── Flag helpers ─────────────────────────────────────────────────────────────
+function parseFlagSet(raw) {
+    if (typeof raw !== 'string' || raw.trim() === '') return new Set();
+    return new Set(raw.split('|').map(s => s.trim()));
+}
+
+function flagCard(title, rawFlags, defs) {
+    const active = parseFlagSet(rawFlags);
+    const activeNames = [...active].join(' | ') || 'none';
+    let html = `<div class="param-card" style="margin-bottom:10px;">`;
+    html += `<h4>${title}</h4>`;
+    html += `<div style="font-size:10px; color:#6B6B6B; margin-bottom:6px; font-family:monospace;">${activeNames}</div>`;
+    html += `<div class="flag-list">`;
+    Object.entries(defs).forEach(([constName, [label, isDanger]]) => {
+        const isActive = active.has(constName);
+        const cls = isActive ? (isDanger ? 'flag-pill active danger' : 'flag-pill active') : 'flag-pill';
+        html += `<span class="${cls}">${label}</span>`;
+    });
+    html += `</div></div>`;
+    return html;
+}
+
+function catCommandSet(code) {
+    return ['Unknown', 'ICOM / Compatibles', 'Yaesu', 'Kenwood', 'Elecraft'][code] ?? `Unknown (code ${code})`;
+}
+
+function catBaud(code) {
+    return [null, 1200, 4800, 9600, 19200][code] != null ? `${[null,1200,4800,9600,19200][code]} bps` : `Unknown (code ${code})`;
+}
+
+// ============================================================================
+// LEGACY (1000/1500/2100) Logic
+// ============================================================================
+const LEGACY_SAMPLES = {
+    '1000': { state:'62', groups:['3asb26','000000','000008','3baa94','0320dc','d77fe1'] },
+    '1500': { state:'b6', groups:['1atr6b','000000','009000','1BA29D','F723DE','D47FC4'] },
+};
+
+async function decodeLegacy() {
+    const model = $('legacyModel').value;
+    const groups = [0,1,2,3,4,5,6].map(i => $(`lg${i}`).value.trim());
+    if (groups.some(g => !g)) { setStatus('⚠ All 7 groups required'); return; }
+    
+    setStatus('Decoding…');
+    try {
+        const sig = await invoke('decode_legacy', { model, groups });
+        renderLegacyResults(sig);
+        setStatus(`✓ ACOM ${model} decode complete`);
+    } catch (err) {
+        $('results').innerHTML = `<div class="fault-hard" style="padding:20px">⚠ Decode error: ${err}</div>`;
+        setStatus('⚠ Decode failed: ' + err);
+    }
+}
+
+function renderLegacyResults(sig) {
+    let html = '';
+    const modelName = { Acom1000:'ACOM 1000', Acom1500:'ACOM 1500', Acom2100:'ACOM 2100' }[sig.model] ?? sig.model;
+
+    html += `<div class="decode-header">═══════════════════════════════════════════════════════════════\n`;
+    html += `  ${modelName} HARD FAULT SIGNATURE DECODE  —  ${new Date().toLocaleString()}\n`;
+    html += `═══════════════════════════════════════════════════════════════</div>`;
+
+    // 1. Substitutions
+    const unconfirmed = sig.substitutions.filter(s => !s.confirmed);
+    if (unconfirmed.length > 0) {
+        html += `<div class="subst-warning"><strong>⚠ Verify Display:</strong> Character '${unconfirmed[0].original}' assumed as '${unconfirmed[0].assumed}'.</div>`;
+    }
+
+    // 2. State
+    html += card('Amplifier State', [
+        ['Phase',      sig.state.phase],
+        ['Mode',       sig.state.mode],
+        ['State Raw',  `0x${sig.state.raw_hi.toString(16)}${sig.state.raw_lo.toString(16)}`.toUpperCase()],
+    ]);
+
+    // 3. Analog Parameters (Using scaled values from Rust)
+    const a = sig.analog;
+    html += `<div class="param-card"><h4>Analog Parameters</h4>`;
+    html += legacyParam('HV Plate Voltage',   a.hvm_v  != null ? `${a.hvm_v} V`            : '—',   a.hvm_v);
+    html += legacyParam('Idle Plate Current', a.ipm_ma != null ? `${a.ipm_ma} mA`           : '—',   a.ipm_ma);
+    html += legacyParam('Forward Power',      a.pfwd_w != null ? `${a.pfwd_w} W`            : `raw: 0x${fmtRaw(a.pfwd_raw)}`, a.pfwd_raw);
+    html += legacyParam('Reflected Power',    a.rfl_w  != null ? `${a.rfl_w} W`             : `raw: 0x${fmtRaw(a.rfl_raw)}`,  a.rfl_raw);
+    html += legacyParam('Input Drive',        a.inp_w  != null ? `${a.inp_w.toFixed(1)} W`  : `raw: 0x${fmtRaw(a.inp_raw)}`,  a.inp_raw);
+    html += legacyParam('PA Anode Avg',       a.paav_v != null ? `${a.paav_v.toFixed(0)} V` : `raw: 0x${fmtRaw(a.paav_raw)}`, a.paav_raw);
+    html += legacyParam('Screen Grid',        a.g2c_ma != null ? `${a.g2c_ma} mA`           : `raw: 0x${fmtRaw(a.g2c_raw)}`,  a.g2c_raw);
+    html += legacyParam('Temperature',        `raw: 0x${fmtRaw(a.temp_raw)}`,                         a.temp_raw);
+    html += `</div>`;
+
+    // 4. Digital Signals
+    html += `<div class="signal-grid">`;
+    html += renderReg('BUFFER 0', sig.registers.buffer0);
+    html += renderReg('BUFFER 1', sig.registers.buffer1);
+    html += renderReg('PORT 1', sig.registers.port1);
+    html += renderReg('PORT 4', sig.registers.port4);
+    html += `</div>`;
+
+    // 5. Checksum
+    const csCls = sig.checksum_ok ? 'fault-ok' : 'fault-soft';
+    html += `<div style="font-size:12px; margin-top:10px;">Checksum: <span class="${csCls}">${sig.checksum_ok ? '✓ Valid' : '✗ Mismatch'}</span></div>`;
+
+    $('results').innerHTML = html;
+}
+
+// ── Legacy Helpers ───────────────────────────────────────────────────────────
+function legacyParam(label, val, raw) {
+    let rawHex = "";
+    if (Array.isArray(raw)) {
+        rawHex = raw.map(b => b.toString(16).padStart(2,'0')).join(' ').toUpperCase();
+    } else {
+        rawHex = raw.toString(16).padStart(2,'0').toUpperCase();
+    }
+    return `<div class="param-line"><span>${label}</span><span class="pval">${val} <small style="color:#666;">[0x${rawHex}]</small></span></div>`;
+}
+
+function renderReg(name, signals) {
+    let html = `<div class="signal-register"><h5>${name}</h5>`;
+    signals.forEach(s => {
+        if (!s.meaningful) return;
+        const dotCls = s.active ? (s.active_low ? 'signal-dot active-danger' : 'signal-dot active') : 'signal-dot';
+        html += `<div class="signal-bit"><span class="signal-name ${s.active ? 'active' : ''}">${s.name}</span><div class="${dotCls}"></div></div>`;
+    });
+    return html + `</div>`;
+}
+
+// ============================================================================
+// Common UI Helpers
+// ============================================================================
+function card(title, rows) {
+    let html = `<div class="param-card"><h4>${title}</h4>`;
+    rows.forEach(([label, value, alert]) => {
+        html += `<div class="param-line"><span>${label}</span><span class="pval ${alert ? 'alert' : ''}">${value}</span></div>`;
+    });
+    return html + `</div>`;
+}
+
+function decodeAmpMode(mode) {
+    if (typeof mode === 'string') return mode;
+    if (typeof mode === 'object' && mode !== null) {
+        const key = Object.keys(mode)[0];
+        return `${key} (0x${mode[key].toString(16).toUpperCase()})`;
+    }
+    return String(mode);
+}
+
+function renderDiagnosis(diagnosis) {
+    if (!diagnosis || !diagnosis.findings || diagnosis.findings.length === 0) return '';
+    let html = `<hr class="decode-separator"><div class="section-label">DIAGNOSTIC ANALYSIS</div>`;
+    diagnosis.findings.forEach(f => {
+        html += `<div class="diag-finding"><strong>${f.title}</strong>: ${f.explanation}<br><em>Action: ${f.action}</em></div>`;
+    });
+    return html;
+}
+
+// ── Input Formatting ─────────────────────────────────────────────────────────
+function autoSpaceHex(lineNum) {
+    const input = $(`line${lineNum}`);
+    const raw = input.value.replace(/\s+/g, '').toUpperCase();
+    if (!raw) return;
+    const groups = [];
+    for (let i = 0; i < raw.length && groups.length < 16; i += 4) groups.push(raw.substring(i, i + 4));
+    input.value = groups.join(' ');
+    validateLineChecksum(lineNum);
+}
+
+function validateLineChecksum(lineNum) {
+    const input = $(`line${lineNum}`);
+    const ind = $(`check${lineNum}`);
+    const words = input.value.trim().split(/\s+/).filter(v => v);
+    if (words.length !== 16) { setIndicator(ind, 'invalid'); return; }
+    const sum = words.reduce((acc, w) => acc + parseInt(w, 16), 0);
+    setIndicator(ind, sum % 65536 === 0 ? 'valid' : 'invalid');
+}
+
+function setIndicator(el, state) {
+    el.className = 'checksum-indicator';
+    if (state === 'valid') { el.classList.add('checksum-valid'); el.textContent = '✓'; }
+    else if (state === 'invalid') { el.classList.add('checksum-invalid'); el.textContent = '✗'; }
+    else { el.classList.add('checksum-empty'); el.textContent = '?'; }
+}
+
+// ── Tab & Navigation ─────────────────────────────────────────────────────────
+function switchTab(tab) {
+    $('panel-500s').style.display  = tab === '500s'   ? '' : 'none';
+    $('panel-legacy').style.display = tab === 'legacy' ? '' : 'none';
+    $('tab-500s').classList.toggle('active', tab === '500s');
+    $('tab-legacy').classList.toggle('active', tab === 'legacy');
+    $('results').innerHTML = '<div class="welcome-message"><p>Ready.</p></div>';
+}
+
+function loadSample() { SAMPLE_LINES.forEach((l, i) => { $(`line${i+1}`).value = l; autoSpaceHex(i+1); }); }
+function loadLegacySample() {
+    const sample = LEGACY_SAMPLES[$('legacyModel').value] || LEGACY_SAMPLES['1000'];
+    $('lg0').value = sample.state;
+    sample.groups.forEach((g, i) => { $(`lg${i+1}`).value = g; });
+}
+function clearAll() { [1,2,3,4].forEach(i => { $(`line${i}`).value = ''; setIndicator($(`check${i}`), 'empty'); }); $('results').innerHTML = '<div class="welcome-message"><p>Cleared.</p></div>'; setStatus('Ready'); }
+function clearLegacy() { [0,1,2,3,4,5,6].forEach(i => $(`lg${i}`).value = ''); $('results').innerHTML = '<div class="welcome-message"><p>Cleared.</p></div>'; setStatus('Ready'); }
+function clearHistory() { signatureHistory = []; renderHistory(); }
+function setStatus(msg) { $('statusBar').textContent = msg; }
+function updateSerialStatus(msg, color) { const el = $('serialStatus'); el.textContent = msg; el.style.color = color; }
+function updateCaptureStatus(html) { $('captureStatus').innerHTML = html; }
+// ── Raw byte formatter ───────────────────────────────────────────────────────
+function fmtRaw(raw) {
+    if (raw == null) return '??';
+    if (Array.isArray(raw)) return raw.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+    return raw.toString(16).padStart(2,'0').toUpperCase();
+}
+
+// ── Capture history ───────────────────────────────────────────────────────────
+function addToHistory(sig) {
+    signatureHistory.unshift(sig);
+    renderHistory();
+}
+
+function renderHistory() {
+    const list = $('historyList');
+    if (!list) return;
+    if (signatureHistory.length === 0) {
+        list.innerHTML = '<div class="history-empty">No signatures captured yet</div>';
+        return;
+    }
+    list.innerHTML = signatureHistory.map((sig, i) => `
+        <div class="history-item" onclick="loadFromHistory(${i})">
+            <div class="history-meta">
+                <span class="history-id">#${sig.id}</span>
+                <span class="history-time">${sig.timestamp.toLocaleTimeString()}</span>
+            </div>
+            <div class="history-preview">${sig.lines[0].substring(0,28)}…</div>
+        </div>
+    `).join('');
+}
+
+function loadFromHistory(index) {
+    const sig = signatureHistory[index];
+    if (!sig) return;
+    for (let i = 0; i < 4; i++) { $(`line${i+1}`).value = sig.lines[i]; autoSpaceHex(i+1); }
+    setTimeout(() => decodeLines(sig.lines), 100);
+    document.querySelector('.split-right').scrollTop = 0;
+}
+
+function buildTextCapture(n, lines) {
+    const ts = new Date().toLocaleString();
+    return `ACOM Fault Signature #${n}\nCaptured: ${ts}\n${'='.repeat(70)}\n\n` +
+           lines.map((l,i) => `Line ${i+1}: ${l}`).join('\n') + '\n';
+}

@@ -1,0 +1,77 @@
+name: Build ACOM Fault Decoder
+
+on:
+  push:
+    tags:
+      - 'v*'           # triggers on version tags e.g. v1.0.0
+  workflow_dispatch:   # allows manual trigger from GitHub UI
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+            name: macOS (Apple Silicon)
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+            name: macOS (Intel)
+          - platform: windows-latest
+            args: ''
+            name: Windows
+          - platform: ubuntu-22.04
+            args: ''
+            name: Linux
+
+    runs-on: ${{ matrix.platform }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libudev-dev \
+            pkg-config
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'ACOM Fault Decoder ${{ github.ref_name }}'
+          releaseBody: |
+            ACOM Fault Decoder — The DX Shop / GW4WND
+
+            **Supports:**
+            - S-Series (500S, 600S, 700S) — RS232 direct capture + manual entry
+            - ACOM 1000 / 1500 / 2100 — manual entry
+
+            See the [README](https://github.com/Nythbran23/acom-fault-decoder#readme) for usage instructions.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
