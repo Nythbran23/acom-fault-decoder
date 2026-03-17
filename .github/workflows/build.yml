@@ -3,8 +3,11 @@ name: Build ACOM Fault Decoder
 on:
   push:
     tags:
-      - 'v*'           # triggers on version tags e.g. v1.0.0
-  workflow_dispatch:   # allows manual trigger from GitHub UI
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -70,8 +73,6 @@ jobs:
             **Supports:**
             - S-Series (500S, 600S, 700S) — RS232 direct capture + manual entry
             - ACOM 1000 / 1500 / 2100 — manual entry
-
-            See the [README](https://github.com/Nythbran23/acom-fault-decoder#readme) for usage instructions.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
