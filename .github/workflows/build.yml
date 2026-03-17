@@ -100,32 +100,6 @@ jobs:
             - ACOM 1000 / 1500 / 2100 — manual entry
 
             See the README for usage instructions.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-
-  publish:
-    name: Publish Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish draft release
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { data: releases } = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            const draft = releases.find(r => r.draft && r.tag_name === context.ref.replace('refs/tags/', ''));
-            if (draft) {
-              await github.rest.repos.updateRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: draft.id,
-                draft: false,
-              });
-              console.log(`Published release: ${draft.name}`);
-            } else {
-              console.log('No draft release found to publish');
-            }
