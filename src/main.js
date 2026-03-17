@@ -372,22 +372,23 @@ function renderLegacyResults(sig) {
 
     // 2. State
     html += card('Amplifier State', [
+        ['Mode',       sig.state.mode.description],
+        ['Mode Code',  sig.state.mode.code.toUpperCase()],
         ['Phase',      sig.state.phase],
-        ['Mode',       sig.state.mode],
-        ['State Raw',  `0x${sig.state.raw_hi.toString(16)}${sig.state.raw_lo.toString(16)}`.toUpperCase()],
+        ['Sequence',   `0x${sig.state.sequence.toString(16).toUpperCase()}`],
     ]);
 
     // 3. Analog Parameters (Using scaled values from Rust)
     const a = sig.analog;
     html += `<div class="param-card"><h4>Analog Parameters</h4>`;
-    html += legacyParam('HV Plate Voltage',   a.hvm_v  != null ? `${a.hvm_v} V`            : '—',   a.hvm_v);
-    html += legacyParam('Idle Plate Current', a.ipm_ma != null ? `${a.ipm_ma} mA`           : '—',   a.ipm_ma);
-    html += legacyParam('Forward Power',      a.pfwd_w != null ? `${a.pfwd_w} W`            : `raw: 0x${fmtRaw(a.pfwd_raw)}`, a.pfwd_raw);
-    html += legacyParam('Reflected Power',    a.rfl_w  != null ? `${a.rfl_w} W`             : `raw: 0x${fmtRaw(a.rfl_raw)}`,  a.rfl_raw);
-    html += legacyParam('Input Drive',        a.inp_w  != null ? `${a.inp_w.toFixed(1)} W`  : `raw: 0x${fmtRaw(a.inp_raw)}`,  a.inp_raw);
-    html += legacyParam('PA Anode Avg',       a.paav_v != null ? `${a.paav_v.toFixed(0)} V` : `raw: 0x${fmtRaw(a.paav_raw)}`, a.paav_raw);
-    html += legacyParam('Screen Grid',        a.g2c_ma != null ? `${a.g2c_ma} mA`           : `raw: 0x${fmtRaw(a.g2c_raw)}`,  a.g2c_raw);
-    html += legacyParam('Temperature',        `raw: 0x${fmtRaw(a.temp_raw)}`,                         a.temp_raw);
+    html += legacyParam('HV Plate Voltage',   `${a.hvm_v} V`,              a.hvm_raw);
+    html += legacyParam('Idle Plate Current', `${a.ipm_ma} mA`,            a.ipm_raw);
+    html += legacyParam('Forward Power',      `${a.pfwd_w.toFixed(1)} W`,  a.pfwd_raw);
+    html += legacyParam('Reflected Power',    `${a.rfl_w.toFixed(1)} W`,   a.rfl_raw);
+    html += legacyParam('Input Drive',        `${a.inp_w.toFixed(1)} W`,   a.inp_raw);
+    html += legacyParam('PA Anode Avg',       `${a.paav_v.toFixed(0)} V`,  a.paav_raw);
+    html += legacyParam('Screen Grid',        `${a.g2c_ma.toFixed(1)} mA`, a.g2c_raw);
+    html += legacyParam('Temperature',        `${a.temp_c} °C`,            a.temp_raw);
     html += `</div>`;
 
     // 4. Digital Signals
