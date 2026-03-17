@@ -66,13 +66,10 @@ jobs:
           CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -hex 12)
-
           echo -n "$CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
-
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
           security import $CERTIFICATE_PATH -P "$CERTIFICATE_PASSWORD" \
             -A -k $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple: \
@@ -106,3 +103,29 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish draft release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const draft = releases.find(r => r.draft && r.tag_name === context.ref.replace('refs/tags/', ''));
+            if (draft) {
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: draft.id,
+                draft: false,
+              });
+              console.log(`Published release: ${draft.name}`);
+            } else {
+              console.log('No draft release found to publish');
+            }
