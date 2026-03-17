@@ -87,22 +87,18 @@ pub async fn save_report(
     }
 }
 
-#[derive(serde::Deserialize)]
-pub struct LegacyDecodeRequest {
-    pub model:  String,
-    pub groups: Vec<String>,
-}
-
 #[tauri::command]
-pub async fn decode_legacy(req: LegacyDecodeRequest)
-    -> Result<crate::decoder::LegacySignature, String>
+pub async fn decode_legacy(
+    model: String,
+    groups: Vec<String>,
+) -> Result<crate::decoder::LegacySignature, String>
 {
     use crate::decoder::{LegacyModel, parse_legacy};
-    let model = match req.model.as_str() {
+    let model = match model.as_str() {
         "1000" => LegacyModel::Acom1000,
         "1500" => LegacyModel::Acom1500,
         "2100" => LegacyModel::Acom2100,
         other  => return Err(format!("Unknown model: {}", other)),
     };
-    parse_legacy(model, &req.groups).map_err(|e| e.to_string())
+    parse_legacy(model, &groups).map_err(|e| e.to_string())
 }

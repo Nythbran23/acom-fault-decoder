@@ -81,9 +81,10 @@ body.split { overflow: hidden; }
 .line-input-wrapper { flex: 1; }
 
 .hex-input {
-    width: 100%; background: #FAFAFA; color: #1A6B1A;
+    width: 100%; background: #FAFAFA; color: #1A1A1A;
     border: 1px solid #C8C8C8; border-radius: 4px;
-    padding: 5px 8px; font-family: 'Courier New', monospace; font-size: 11px;
+    padding: 5px 8px; font-family: 'Courier New', monospace; font-size: 13px;
+    font-weight: 700;
     transition: border-color 0.2s;
 }
 .hex-input:focus { outline: none; border-color: #E07820; background: #FFFFFF; }
