@@ -1,6 +1,6 @@
 [package]
 name = "acom-fault-decoder"
-version = "1.0.0-alpha"
+version = "1.0.0"
 description = "Professional desktop application for decoding ACOM amplifier fault signatures"
 authors = ["The DX Shop / GW4WND"]
 edition = "2021"
@@ -15,7 +15,6 @@ tauri-build = { version = "2.0", features = [] }
 [dependencies]
 tauri            = { version = "2.0", features = ["devtools"] }
 tauri-plugin-dialog = "2.0"
-tauri-plugin-log    = "2.0"
 tauri-plugin-shell  = "2.0"
 
 serde      = { version = "1.0", features = ["derive"] }
@@ -23,4 +22,3 @@ serde_json = "1.0"
 serialport = "4.3"
 bitflags   = "2.4"
 thiserror  = "1.0"
-log        = "0.4"

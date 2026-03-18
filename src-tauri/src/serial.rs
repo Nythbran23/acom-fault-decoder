@@ -123,14 +123,14 @@ fn capture_loop(mut port: Box<dyn SerialPort>, app: AppHandle, stop: Arc<AtomicB
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
             Err(e) => {
-                log::error!("Serial read error: {e}");
+                eprintln!("Serial read error: {e}");
                 let _ = app.emit("serial-error", e.to_string());
                 break;
             }
         }
     }
 
-    log::info!("Serial capture thread exiting");
+    eprintln!("Serial capture thread exiting");
     let _ = app.emit("serial-disconnected", ());
 }
 

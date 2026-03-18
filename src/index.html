@@ -13,7 +13,7 @@
     <div class="split-left">
         <div class="header">
             <h1>ACOM Fault Decoder</h1>
-            <p>GW4WND</p>
+            <p>GW4WND &nbsp;·&nbsp; <span id="appVersion">v—</span></p>
         </div>
 
         <!-- Model tabs -->
@@ -83,21 +83,13 @@
                 </div>
                 <div class="btn-row">
                     <button class="btn-primary" id="decodeBtn">Decode</button>
-                    <button class="btn-secondary" id="sampleBtn">Load Sample</button>
+                    <button class="btn-secondary" id="loadFileBtn">Load File</button>
+                    <button class="btn-secondary" id="sampleBtn">Sample</button>
                     <button class="btn-secondary" id="clearBtn">Clear</button>
                 </div>
             </div>
-
-            <!-- Capture history -->
-            <div class="history-panel">
-                <div class="section-title-row">
-                    <span class="section-title">Capture History</span>
-                    <button class="btn-tiny" id="clearHistoryBtn">Clear</button>
-                </div>
-                <div id="historyList">
-                    <div class="history-empty">No signatures captured yet</div>
-                </div>
-            </div>
+        </div>
+        </div>
         </div>
 
         <!-- ══ LEGACY PANEL (1000/1500/2100) ══ -->

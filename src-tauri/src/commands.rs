@@ -21,7 +21,6 @@ pub async fn connect_serial(
     }
     let new_handle = serial::connect(&port, app)?;
     *handle = Some(new_handle);
-    log::info!("Connected to {port}");
     Ok(())
 }
 
@@ -109,4 +108,38 @@ pub async fn decode_legacy(
     let sig = parse_legacy(model, &groups).map_err(|e| e.to_string())?;
     let diagnosis = diagnose_legacy(&sig);
     Ok(LegacyDecodeResponse { signature: sig, diagnosis })
+}
+
+#[tauri::command]
+pub async fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
+pub async fn open_signatures_folder(app: AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    use std::fs;
+    let downloads = app.path().download_dir().map_err(|e| e.to_string())?;
+    let folder = downloads.join("ACOM_Signatures");
+    fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg(&folder).spawn().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("explorer").arg(&folder).spawn().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open").arg(&folder).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_signatures_dir(app: AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let downloads = app.path().download_dir().map_err(|e| e.to_string())?;
+    let folder = downloads.join("ACOM_Signatures");
+    Ok(folder.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn read_signature_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }

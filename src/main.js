@@ -30,6 +30,13 @@ const $ = id => document.getElementById(id);
 // Initialisation
 // ============================================================================
 window.addEventListener('DOMContentLoaded', async () => {
+    // Pull version from Tauri app metadata
+    try {
+        const version = await invoke('get_app_version');
+        const el = document.getElementById('appVersion');
+        if (el) el.textContent = 'v' + version;
+    } catch(e) { console.warn('version fetch failed:', e); }
+
     await refreshPorts();
 
     // 500S / Global controls
@@ -37,9 +44,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('connectSerialBtn').addEventListener('click', connectSerial);
     $('disconnectSerialBtn').addEventListener('click', disconnectSerial);
     $('decodeBtn').addEventListener('click', decodeManual);
+    $('loadFileBtn').addEventListener('click', loadSignatureFile);
     $('sampleBtn').addEventListener('click', loadSample);
     $('clearBtn').addEventListener('click', clearAll);
     $('clearHistoryBtn').addEventListener('click', clearHistory);
+    $('loadFileBtn').addEventListener('click', loadSignatureFile);
+    $('sampleBtn').addEventListener('click', loadSample);
+    $('openFolderBtn').addEventListener('click', openSignaturesFolder);
 
     // Legacy controls
     $('legacyDecodeBtn').addEventListener('click', decodeLegacy);
@@ -541,7 +552,7 @@ function addToHistory(sig) {
     renderHistory();
 }
 
-function renderHistory() {
+function renderHistory(activeIdx = -1) {
     const list = $('historyList');
     if (!list) return;
     if (signatureHistory.length === 0) {
@@ -549,7 +560,7 @@ function renderHistory() {
         return;
     }
     list.innerHTML = signatureHistory.map((sig, i) => `
-        <div class="history-item" onclick="loadFromHistory(${i})">
+        <div class="history-item ${i === activeIdx ? 'active' : ''}" onclick="loadFromHistory(${i})">
             <div class="history-meta">
                 <span class="history-id">#${sig.id}</span>
                 <span class="history-time">${sig.timestamp.toLocaleTimeString()}</span>
@@ -563,6 +574,7 @@ function loadFromHistory(index) {
     const sig = signatureHistory[index];
     if (!sig) return;
     for (let i = 0; i < 4; i++) { $(`line${i+1}`).value = sig.lines[i]; autoSpaceHex(i+1); }
+    renderHistory(index);
     setTimeout(() => decodeLines(sig.lines), 100);
     document.querySelector('.split-right').scrollTop = 0;
 }
@@ -690,4 +702,55 @@ function renderLegacyDiagnosis(diagnosis) {
     });
 
     return html;
+}
+
+// ── Load signature from file ──────────────────────────────────────────────────
+async function loadSignatureFile() {
+    try {
+        const { open } = window.__TAURI__.dialog;
+        const sigDir = await getSignaturesDir();
+        const selected = await open({
+            multiple: false,
+            filters: [{ name: 'ACOM Signature', extensions: ['txt'] }],
+            defaultPath: sigDir || undefined,
+        });
+        if (!selected) return;
+
+        const content = await invoke('read_signature_file', { path: selected });
+
+        // Parse: lines starting with "Line N:" or just raw hex lines
+        const lines = content.split('\n')
+            .map(l => l.replace(/^Line \d+:\s*/i, '').trim())
+            .filter(l => /^[0-9A-Fa-f\s]+$/.test(l) && l.replace(/\s/g,'').length >= 60);
+
+        if (lines.length < 4) {
+            setStatus('⚠ Could not parse signature file — expected 4 hex lines');
+            return;
+        }
+
+        for (let i = 0; i < 4; i++) {
+            $(`line${i+1}`).value = lines[i];
+            autoSpaceHex(i+1);
+        }
+        setStatus('✓ Signature loaded from file');
+        await decodeLines([1,2,3,4].map(i => $(`line${i}`).value.trim()));
+    } catch (err) {
+        setStatus('⚠ Failed to load file: ' + err);
+    }
+}
+
+async function getSignaturesDir() {
+    try {
+        const base = await invoke('get_signatures_dir');
+        return base;
+    } catch { return null; }
+}
+
+// ── Open signatures folder ────────────────────────────────────────────────────
+async function openSignaturesFolder() {
+    try {
+        await invoke('open_signatures_folder');
+    } catch (err) {
+        setStatus('⚠ Could not open folder: ' + err);
+    }
 }

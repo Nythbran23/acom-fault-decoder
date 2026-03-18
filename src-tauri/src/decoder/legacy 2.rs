@@ -405,7 +405,7 @@ pub fn parse_legacy(
 
     // ── Group 0: sequence counter (1-2 chars) ────────────────────────────────
     let seq_str = groups[0].trim();
-    let _sequence = u8::from_str_radix(seq_str, 16).unwrap_or(0);
+    let sequence = u8::from_str_radix(seq_str, 16).unwrap_or(0);
 
     // ── Groups 1-6: parse each into 3 bytes, but group 1 chars 3-4 is a
     //    literal mode code not a hex byte

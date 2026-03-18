@@ -127,8 +127,8 @@ button {
     background: #FFFFFF; padding: 8px 10px; margin-bottom: 5px; border-radius: 4px;
     cursor: pointer; border: 2px solid #E0E0E0; transition: all 0.15s;
 }
-.history-item:hover { border-color: #E07820; }
-.history-item.active { border-color: #E07820; background: #FFF8F2; }
+.history-item:hover { border-color: #E07820; background: #FFF8F2; }
+.history-item.active { border-color: #E07820; background: #FFF3E8; }
 
 .history-meta { display: flex; justify-content: space-between; margin-bottom: 3px; }
 .history-id   { color: #E07820; font-weight: 700; font-size: 12px; }

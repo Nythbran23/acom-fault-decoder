@@ -16,6 +16,7 @@ pub struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
@@ -30,9 +31,6 @@ pub fn run() {
             commands::save_report,
             commands::decode_legacy,
             commands::get_app_version,
-            commands::open_signatures_folder,
-            commands::get_signatures_dir,
-            commands::read_signature_file,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
