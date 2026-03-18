@@ -87,18 +87,26 @@ pub async fn save_report(
     }
 }
 
+#[derive(serde::Serialize)]
+pub struct LegacyDecodeResponse {
+    pub signature:  crate::decoder::LegacySignature,
+    pub diagnosis:  crate::decoder::LegacyDiagnostic,
+}
+
 #[tauri::command]
 pub async fn decode_legacy(
     model: String,
     groups: Vec<String>,
-) -> Result<crate::decoder::LegacySignature, String>
+) -> Result<LegacyDecodeResponse, String>
 {
-    use crate::decoder::{LegacyModel, parse_legacy};
+    use crate::decoder::{LegacyModel, parse_legacy, diagnose_legacy};
     let model = match model.as_str() {
         "1000" => LegacyModel::Acom1000,
         "1500" => LegacyModel::Acom1500,
         "2100" => LegacyModel::Acom2100,
         other  => return Err(format!("Unknown model: {}", other)),
     };
-    parse_legacy(model, &groups).map_err(|e| e.to_string())
+    let sig = parse_legacy(model, &groups).map_err(|e| e.to_string())?;
+    let diagnosis = diagnose_legacy(&sig);
+    Ok(LegacyDecodeResponse { signature: sig, diagnosis })
 }

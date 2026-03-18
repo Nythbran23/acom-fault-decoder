@@ -110,28 +110,21 @@
                     <option value="2100">ACOM 2100</option>
                 </select>
 
+
                 <div class="section-title" style="margin-top:14px;">Signature Groups</div>
-                <div class="legacy-note">Read codes from front panel display left→right</div>
+                <div class="legacy-note">Read each row left→right — 6 columns of 6 characters</div>
 
                 <div class="line-inputs" style="margin-top:8px;">
                     <div class="line-input">
-                        <span class="line-label" style="width:54px;">State</span>
-                        <div class="line-input-wrapper">
-                            <input type="text" id="lg0" class="hex-input legacy-input" maxlength="2"
-                                   placeholder="62" autocomplete="off" spellcheck="false">
-                        </div>
-                        <span class="group-badge">G0</span>
-                    </div>
-                    <div class="line-input">
-                        <span class="line-label" style="width:54px;">Group 1</span>
+                        <span class="line-label" style="width:44px;">Col 1</span>
                         <div class="line-input-wrapper">
                             <input type="text" id="lg1" class="hex-input legacy-input" maxlength="6"
-                                   placeholder="3asb26" autocomplete="off" spellcheck="false">
+                                   placeholder="1atr6b" autocomplete="off" spellcheck="false">
                         </div>
                         <span class="group-badge">G1</span>
                     </div>
                     <div class="line-input">
-                        <span class="line-label" style="width:54px;">Group 2</span>
+                        <span class="line-label" style="width:44px;">Col 2</span>
                         <div class="line-input-wrapper">
                             <input type="text" id="lg2" class="hex-input legacy-input" maxlength="6"
                                    placeholder="000000" autocomplete="off" spellcheck="false">
@@ -139,7 +132,7 @@
                         <span class="group-badge">G2</span>
                     </div>
                     <div class="line-input">
-                        <span class="line-label" style="width:54px;">Group 3</span>
+                        <span class="line-label" style="width:44px;">Col 3</span>
                         <div class="line-input-wrapper">
                             <input type="text" id="lg3" class="hex-input legacy-input" maxlength="6"
                                    placeholder="000008" autocomplete="off" spellcheck="false">
@@ -147,7 +140,7 @@
                         <span class="group-badge">G3</span>
                     </div>
                     <div class="line-input">
-                        <span class="line-label" style="width:54px;">Group 4</span>
+                        <span class="line-label" style="width:44px;">Col 4</span>
                         <div class="line-input-wrapper">
                             <input type="text" id="lg4" class="hex-input legacy-input" maxlength="6"
                                    placeholder="3baa94" autocomplete="off" spellcheck="false">
@@ -155,7 +148,7 @@
                         <span class="group-badge">G4</span>
                     </div>
                     <div class="line-input">
-                        <span class="line-label" style="width:54px;">Group 5</span>
+                        <span class="line-label" style="width:44px;">Col 5</span>
                         <div class="line-input-wrapper">
                             <input type="text" id="lg5" class="hex-input legacy-input" maxlength="6"
                                    placeholder="0320dc" autocomplete="off" spellcheck="false">
@@ -163,16 +156,20 @@
                         <span class="group-badge">G5</span>
                     </div>
                     <div class="line-input">
-                        <span class="line-label" style="width:54px;">Group 6</span>
+                        <span class="line-label" style="width:44px;">Col 6</span>
                         <div class="line-input-wrapper">
                             <input type="text" id="lg6" class="hex-input legacy-input" maxlength="6"
-                                   placeholder="d77fe1" autocomplete="off" spellcheck="false">
+                                   placeholder="c57ff1" autocomplete="off" spellcheck="false">
                         </div>
                         <span class="group-badge">G6</span>
                     </div>
                 </div>
 
-                <div class="btn-row" style="margin-top:10px;">
+                <div id="legacyChecksumIndicator" class="legacy-checksum-indicator cs-empty">
+                    ? Enter all groups to verify
+                </div>
+
+                <div class="btn-row" style="margin-top:8px;">
                     <button class="btn-primary" id="legacyDecodeBtn">Decode</button>
                     <button class="btn-secondary" id="legacySampleBtn">Load Sample</button>
                     <button class="btn-secondary" id="legacyClearBtn">Clear</button>

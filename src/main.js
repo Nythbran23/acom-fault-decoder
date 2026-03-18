@@ -46,6 +46,22 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('legacySampleBtn').addEventListener('click', loadLegacySample);
     $('legacyClearBtn').addEventListener('click', clearLegacy);
 
+    // Legacy auto-advance and live checksum
+    const legacyLengths = { lg1: 6, lg2: 6, lg3: 6, lg4: 6, lg5: 6, lg6: 6 };
+    const legacyOrder  = ['lg1','lg2','lg3','lg4','lg5','lg6'];
+    legacyOrder.forEach((id, idx) => {
+        $(id).addEventListener('input', () => {
+            autoUpperLegacy(id);
+            // Auto-advance when field is full
+            const max = legacyLengths[id];
+            if ($(id).value.replace(/\s/g,'').length >= max && idx < legacyOrder.length - 1) {
+                $(legacyOrder[idx + 1]).focus();
+                $(legacyOrder[idx + 1]).select();
+            }
+            validateLegacyChecksum();
+        });
+    });
+
     for (let i = 1; i <= 4; i++) {
         $(`line${i}`).addEventListener('input',   () => autoSpaceHex(i));
         $(`line${i}`).addEventListener('change',  () => validateLineChecksum(i));
@@ -336,19 +352,20 @@ function catBaud(code) {
 // LEGACY (1000/1500/2100) Logic
 // ============================================================================
 const LEGACY_SAMPLES = {
-    '1000': { state:'62', groups:['3asb26','000000','000008','3baa94','0320dc','d77fe1'] },
-    '1500': { state:'b6', groups:['1atr6b','000000','009000','1BA29D','F723DE','D47FC4'] },
+    '1000': ['3asb26','000000','000008','3baa94','0320dc','d77fe1'],
+    '1500': ['1atr6b','000000','009000','1BA29D','F723DE','D47FC4'],
+    '2100': ['1asb24','000000','000000','000000','000000','000000'],
 };
 
 async function decodeLegacy() {
     const model = $('legacyModel').value;
-    const groups = [0,1,2,3,4,5,6].map(i => $(`lg${i}`).value.trim());
-    if (groups.some(g => !g)) { setStatus('⚠ All 7 groups required'); return; }
+    const groups = [1,2,3,4,5,6].map(i => $(`lg${i}`).value.trim());
+    if (groups.some(g => !g)) { setStatus('⚠ All 6 columns required'); return; }
     
     setStatus('Decoding…');
     try {
-        const sig = await invoke('decode_legacy', { model, groups });
-        renderLegacyResults(sig);
+        const response = await invoke('decode_legacy', { model, groups });
+        renderLegacyResults(response.signature, response.diagnosis);
         setStatus(`✓ ACOM ${model} decode complete`);
     } catch (err) {
         $('results').innerHTML = `<div class="fault-hard" style="padding:20px">⚠ Decode error: ${err}</div>`;
@@ -356,7 +373,7 @@ async function decodeLegacy() {
     }
 }
 
-function renderLegacyResults(sig) {
+function renderLegacyResults(sig, diagnosis) {
     let html = '';
     const modelName = { Acom1000:'ACOM 1000', Acom1500:'ACOM 1500', Acom2100:'ACOM 2100' }[sig.model] ?? sig.model;
 
@@ -372,13 +389,19 @@ function renderLegacyResults(sig) {
 
     // 2. State
     html += card('Amplifier State', [
-        ['Mode',       sig.state.mode.description],
-        ['Mode Code',  sig.state.mode.code.toUpperCase()],
-        ['Phase',      sig.state.phase],
-        ['Sequence',   `0x${sig.state.sequence.toString(16).toUpperCase()}`],
+        ['Trip Number',   sig.state.trip_number],
+        ['Operating State', sig.state.state_description],
+        ['Mode',          sig.state.mode.description],
+        ['Fault Signal',  `${sig.state.fault_signal.signal_name} — ${sig.state.fault_signal.description}`],
+        ['Signal Type',   sig.state.fault_signal.signal_type],
     ]);
 
     // 3. Analog Parameters (Using scaled values from Rust)
+    // ── Diagnostic analysis ───────────────────────────────────────────────────
+    if (diagnosis && diagnosis.findings && diagnosis.findings.length > 0) {
+        html += renderLegacyDiagnosis(diagnosis);
+    }
+
     const a = sig.analog;
     html += `<div class="param-card"><h4>Analog Parameters</h4>`;
     html += legacyParam('HV Plate Voltage',   `${a.hvm_v} V`,              a.hvm_raw);
@@ -496,11 +519,11 @@ function switchTab(tab) {
 function loadSample() { SAMPLE_LINES.forEach((l, i) => { $(`line${i+1}`).value = l; autoSpaceHex(i+1); }); }
 function loadLegacySample() {
     const sample = LEGACY_SAMPLES[$('legacyModel').value] || LEGACY_SAMPLES['1000'];
-    $('lg0').value = sample.state;
-    sample.groups.forEach((g, i) => { $(`lg${i+1}`).value = g; });
+    sample.forEach((g, i) => { $(`lg${i+1}`).value = g; });
+    validateLegacyChecksum();
 }
 function clearAll() { [1,2,3,4].forEach(i => { $(`line${i}`).value = ''; setIndicator($(`check${i}`), 'empty'); }); $('results').innerHTML = '<div class="welcome-message"><p>Cleared.</p></div>'; setStatus('Ready'); }
-function clearLegacy() { [0,1,2,3,4,5,6].forEach(i => $(`lg${i}`).value = ''); $('results').innerHTML = '<div class="welcome-message"><p>Cleared.</p></div>'; setStatus('Ready'); }
+function clearLegacy() { [1,2,3,4,5,6].forEach(i => $(`lg${i}`).value = ''); $('results').innerHTML = '<div class="welcome-message"><p>Cleared.</p></div>'; setStatus('Ready'); setLegacyIndicator('empty'); }
 function clearHistory() { signatureHistory = []; renderHistory(); }
 function setStatus(msg) { $('statusBar').textContent = msg; }
 function updateSerialStatus(msg, color) { const el = $('serialStatus'); el.textContent = msg; el.style.color = color; }
@@ -548,4 +571,123 @@ function buildTextCapture(n, lines) {
     const ts = new Date().toLocaleString();
     return `ACOM Fault Signature #${n}\nCaptured: ${ts}\n${'='.repeat(70)}\n\n` +
            lines.map((l,i) => `Line ${i+1}: ${l}`).join('\n') + '\n';
+}
+
+// ── Legacy input helpers ──────────────────────────────────────────────────────
+function autoUpperLegacy(id) {
+    const el = $(id);
+    const pos = el.selectionStart;
+    el.value = el.value.toLowerCase();  // keep lowercase for consistency
+    el.setSelectionRange(pos, pos);
+}
+
+function validateLegacyChecksum() {
+    const ind = $('legacyChecksumIndicator');
+    if (!ind) return;
+
+    const fields = ['lg1','lg2','lg3','lg4','lg5','lg6'].map(id => $(id).value.trim().toLowerCase());
+
+    // Need all groups to be the right length
+    if (fields.some(f => f.length !== 6)) {
+        setLegacyIndicator('empty');
+        return;
+    }
+
+    // Parse mode code from group1 chars 2-3
+    // Known codes: pn=01, pr=02, sb=03, tr=04. Anything else treated as raw hex byte.
+    const modeCode = fields[0].slice(2, 4);
+    const modeMap  = { pn: 0x01, pr: 0x02, sb: 0x03, tr: 0x04 };
+    const modeNum  = modeMap[modeCode] ?? (parseInt(modeCode, 16) || 0);
+
+    // Normalise 7-seg chars to hex
+    function norm(ch) {
+        if ('0123456789abcdef'.includes(ch)) return ch;
+        if (ch === 's') return '5';
+        if (ch === 'r') return '5';
+        if (ch === 't') return '4';
+        return null;
+    }
+
+    function parseHexByte(s) {
+        const n0 = norm(s[0]), n1 = norm(s[1]);
+        if (!n0 || !n1) return null;
+        return parseInt(n0 + n1, 16);
+    }
+
+    // Extract bytes in checksum order (matches Rust implementation)
+    const g1 = fields[0], g2 = fields[1], g3 = fields[2];
+    const g4 = fields[3], g5 = fields[4], g6 = fields[5];
+
+    const secondary = parseHexByte(g1.slice(4, 6));
+    const pfwd      = parseHexByte(g2.slice(0, 2));
+    const rfl       = parseHexByte(g2.slice(2, 4));
+    const inp       = parseHexByte(g2.slice(4, 6));
+    const paav      = parseHexByte(g3.slice(0, 2));
+    const g2c       = parseHexByte(g3.slice(2, 4));
+    const ipm       = parseHexByte(g3.slice(4, 6));
+    // g4[0..2] = GAMA display byte — NOT included in checksum
+    const hvm       = parseHexByte(g4.slice(2, 4));
+    const temp      = parseHexByte(g4.slice(4, 6));
+    const buf0      = parseHexByte(g5.slice(0, 2));
+    const buf1      = parseHexByte(g5.slice(2, 4));
+    const port1     = parseHexByte(g5.slice(4, 6));
+    const port3     = parseHexByte(g6.slice(0, 2));
+    const port4     = parseHexByte(g6.slice(2, 4));
+    const csGiven   = parseHexByte(g6.slice(4, 6));
+
+    const bytes = [secondary, pfwd, rfl, inp, paav, g2c, ipm, hvm, temp,
+                   buf0, buf1, port1, port3, port4];
+
+    if (bytes.some(b => b === null) || csGiven === null) {
+        setLegacyIndicator('empty');
+        return;
+    }
+
+    let cs = 0xA5 ^ modeNum;
+    for (const b of bytes) cs ^= b;
+
+    setLegacyIndicator(cs === csGiven ? 'valid' : 'invalid');
+}
+
+function setLegacyIndicator(state) {
+    const ind = $('legacyChecksumIndicator');
+    if (!ind) return;
+    ind.className = 'legacy-checksum-indicator';
+    if (state === 'valid') {
+        ind.classList.add('cs-valid');
+        ind.innerHTML = '✓ Checksum valid';
+    } else if (state === 'invalid') {
+        ind.classList.add('cs-invalid');
+        ind.innerHTML = '✗ Checksum mismatch — check for transcription errors';
+    } else {
+        ind.classList.add('cs-empty');
+        ind.innerHTML = '? Enter all groups to verify';
+    }
+}
+
+// ── Legacy diagnostic renderer ────────────────────────────────────────────────
+function renderLegacyDiagnosis(diagnosis) {
+    const sevConfig = {
+        'critical': { cls: 'diag-critical', badge: 'diag-critical-badge', icon: '⛔', label: 'CRITICAL' },
+        'warning':  { cls: 'diag-warning',  badge: 'diag-warning-badge',  icon: '⚠',  label: 'WARNING'  },
+        'info':     { cls: 'diag-info',     badge: 'diag-info-badge',     icon: 'ℹ',  label: 'INFO'     },
+    };
+
+    let html = `<hr class="decode-separator">`;
+    html += `<div class="section-label">DIAGNOSTIC ANALYSIS</div>`;
+    html += `<div class="diag-summary diag-critical-bg" style="margin-bottom:12px;">${diagnosis.summary}</div>`;
+
+    diagnosis.findings.forEach(f => {
+        const cfg = sevConfig[f.severity] ?? sevConfig['info'];
+        html += `<div class="diag-finding ${cfg.cls}">
+            <div class="diag-finding-header">
+                <span class="diag-badge ${cfg.badge}">${cfg.icon} ${cfg.label}</span>
+                <span class="diag-title">${f.title}</span>
+            </div>
+            <div class="diag-explanation">${f.explanation}</div>
+            <div class="diag-action"><strong>→ Action:</strong> ${f.action}</div>
+        </div>`;
+    });
+
+    return html;
 }

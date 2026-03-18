@@ -6,5 +6,5 @@ pub mod parameters;
 pub mod signature;
 
 pub use signature::{AcomSignature, ParseError};
-pub use legacy::{LegacyModel, LegacySignature, parse_legacy};
+pub use legacy::{LegacyModel, LegacySignature, LegacyDiagnostic, diagnose_legacy, parse_legacy};
 pub use diagnosis::{diagnose, DiagnosticReport};

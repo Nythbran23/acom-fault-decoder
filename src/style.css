@@ -368,3 +368,13 @@ button {
     padding: 6px 10px; font-size: 10px; color: #AAAAAA;
     margin-top: 6px; font-style: italic;
 }
+
+/* ── Legacy checksum indicator ───────────────────────────────────────────── */
+.legacy-checksum-indicator {
+    margin-top: 10px; padding: 7px 12px; border-radius: 4px;
+    font-size: 12px; font-weight: 600; text-align: center;
+    border: 1px solid; transition: all 0.2s;
+}
+.cs-valid   { background: #F0FFF0; border-color: #2E8B2E; color: #2E8B2E; }
+.cs-invalid { background: #FFF0F0; border-color: #CC2222; color: #CC2222; }
+.cs-empty   { background: #F8F8F8; border-color: #D0D0D0; color: #AAAAAA; }
