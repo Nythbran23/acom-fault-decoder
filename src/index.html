@@ -180,5 +180,25 @@
 
 <div class="status-bar" id="statusBar">Ready</div>
 <script src="main.js"></script>
+
+    <!-- ── Print modal ── -->
+    <div id="printModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:8px; padding:24px; width:360px; border-top:4px solid #E07820;">
+            <h3 style="margin-bottom:16px; color:#3D3D3D; font-size:15px;">Print Fault Report</h3>
+            <div style="margin-bottom:12px;">
+                <label style="font-size:12px; font-weight:600; color:#6B6B6B; display:block; margin-bottom:4px;">Owner Name (optional)</label>
+                <input type="text" id="printOwner" class="hex-input" style="font-size:13px; font-weight:400; letter-spacing:0;" placeholder="e.g. Roger Banks GW4WND">
+            </div>
+            <div style="margin-bottom:20px;">
+                <label style="font-size:12px; font-weight:600; color:#6B6B6B; display:block; margin-bottom:4px;">Amplifier Serial Number (optional)</label>
+                <input type="text" id="printSerial" class="hex-input" style="font-size:13px; font-weight:400; letter-spacing:0;" placeholder="e.g. A1234">
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button class="btn-primary" onclick="doPrint()" style="flex:1;">Print / Save PDF</button>
+                <button class="btn-secondary" onclick="closePrintModal()" style="flex:0 0 auto;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

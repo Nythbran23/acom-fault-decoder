@@ -143,3 +143,26 @@ pub async fn get_signatures_dir(app: AppHandle) -> Result<String, String> {
 pub async fn read_signature_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn save_and_open_report(
+    app: AppHandle,
+    html: String,
+    filename: String,
+) -> Result<String, String> {
+    use tauri::Manager;
+    use std::fs;
+    let downloads = app.path().download_dir().map_err(|e| e.to_string())?;
+    let folder = downloads.join("ACOM_Signatures");
+    fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    let path = folder.join(&filename);
+    fs::write(&path, html).map_err(|e| e.to_string())?;
+    let path_str = path.to_string_lossy().into_owned();
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg(&path_str).spawn().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd").args(["/C", "start", "", &path_str]).spawn().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open").arg(&path_str).spawn().map_err(|e| e.to_string())?;
+    Ok(path_str)
+}

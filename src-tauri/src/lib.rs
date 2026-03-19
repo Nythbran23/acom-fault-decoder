@@ -33,6 +33,7 @@ pub fn run() {
             commands::open_signatures_folder,
             commands::get_signatures_dir,
             commands::read_signature_file,
+            commands::save_and_open_report,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

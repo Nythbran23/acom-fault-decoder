@@ -327,6 +327,7 @@ function renderResults(sig, diagnosis, rawLines) {
     $('results').innerHTML = html;
     setStatus(`✓ Decode complete — ${hard.length} hard, ${soft.length} soft`);
     document.querySelector('.split-right').scrollTop = 0;
+    addPrintButton();
 }
 
 // ── Flag helpers ─────────────────────────────────────────────────────────────
@@ -378,6 +379,7 @@ async function decodeLegacy() {
         const response = await invoke('decode_legacy', { model, groups });
         renderLegacyResults(response.signature, response.diagnosis);
         setStatus(`✓ ACOM ${model} decode complete`);
+        addPrintButton();
     } catch (err) {
         $('results').innerHTML = `<div class="fault-hard" style="padding:20px">⚠ Decode error: ${err}</div>`;
         setStatus('⚠ Decode failed: ' + err);
@@ -753,4 +755,116 @@ async function openSignaturesFolder() {
     } catch (err) {
         setStatus('⚠ Could not open folder: ' + err);
     }
+}
+
+// ============================================================================
+// Print / PDF report
+// ============================================================================
+
+function showPrintModal() {
+    const modal = $('printModal');
+    modal.style.display = 'flex';
+    $('printOwner').focus();
+}
+
+function closePrintModal() {
+    $('printModal').style.display = 'none';
+}
+
+async function doPrint() {
+    const owner  = $('printOwner').value.trim();
+    const serial = $('printSerial').value.trim();
+    const now    = new Date().toLocaleString();
+    const ver    = document.getElementById('appVersion')?.textContent || '';
+
+    // Get the current results HTML
+    const resultsHtml = $('results').innerHTML;
+
+    // Build standalone HTML report
+    const reportHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ACOM Fault Report — ${now}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size:12px; color:#3D3D3D; margin:20px 30px; }
+  h1 { color:#E07820; font-size:20px; margin-bottom:4px; }
+  .meta { color:#6B6B6B; font-size:11px; margin-bottom:20px; padding-bottom:12px; border-bottom:2px solid #E07820; line-height:1.8; }
+  .param-card { background:#fff; border:1px solid #E0E0E0; border-top:3px solid #E07820; border-radius:6px; padding:14px; margin-bottom:12px; break-inside:avoid; }
+  .param-card h4 { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#3D3D3D; margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid #F0F0F0; }
+  .param-line { padding:4px 0; font-size:12px; color:#6B6B6B; display:flex; justify-content:space-between; border-bottom:1px dotted #F0F0F0; }
+  .param-line:last-child { border-bottom:none; }
+  .param-line .pval { color:#3D3D3D; font-family:monospace; font-weight:600; }
+  .param-line .pval.alert { color:#CC2222; }
+  .decode-header { font-family:monospace; font-size:11px; background:#3D3D3D; color:#fff; padding:10px 14px; border-radius:6px; margin-bottom:14px; border-left:4px solid #E07820; white-space:pre; }
+  .decode-separator { border:none; border-top:1px solid #D8D8D8; margin:14px 0; }
+  .fault-hard { color:#CC2222; font-weight:700; }
+  .fault-soft { color:#CC7700; font-weight:700; }
+  .fault-item { padding:7px 12px; margin-bottom:4px; border-radius:4px; background:#fff; border:1px solid #E0E0E0; border-left:4px solid #C8C8C8; }
+  .diag-finding { background:#fff; border-radius:6px; padding:14px; margin-bottom:10px; border:1px solid #E0E0E0; border-left:4px solid; break-inside:avoid; }
+  .diag-critical { border-left-color:#CC2222; }
+  .diag-warning { border-left-color:#CC7700; }
+  .diag-info { border-left-color:#2266CC; }
+  .diag-summary { padding:10px 14px; border-radius:6px; margin-bottom:10px; font-weight:600; border-left:4px solid #CC2222; background:#FFF0F0; color:#8B0000; }
+  .section-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:#6B6B6B; margin-bottom:8px; }
+  .signal-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+  .signal-register { background:#fff; border-radius:6px; padding:12px; border:1px solid #E0E0E0; border-top:3px solid #E07820; break-inside:avoid; }
+  .signal-register h5 { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#3D3D3D; margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid #F0F0F0; font-family:monospace; }
+  .signal-bit { display:flex; justify-content:space-between; align-items:center; padding:2px 0; font-size:11px; border-bottom:1px dotted #F5F5F5; }
+  .signal-name { color:#6B6B6B; font-family:monospace; }
+  .signal-name.active { color:#3D3D3D; font-weight:700; }
+  .signal-dot { width:10px; height:10px; border-radius:50%; background:#E0E0E0; flex-shrink:0; }
+  .signal-dot.active { background:#E07820; }
+  .flag-list { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+  .flag-pill { background:#F2F2F2; border:1px solid #D8D8D8; border-radius:3px; padding:2px 8px; font-size:10px; color:#6B6B6B; font-weight:600; }
+  .flag-pill.active { background:#FFF3E8; border-color:#E07820; color:#C06010; }
+  .flag-pill.active.danger { background:#FFF0F0; border-color:#CC2222; color:#CC2222; }
+  .diag-action { font-size:12px; color:#3D3D3D; background:#F8F8F8; padding:8px 10px; border-radius:4px; border-left:3px solid #E07820; margin-top:6px; }
+  .diag-explanation { font-size:12px; color:#6B6B6B; line-height:1.6; margin-bottom:8px; }
+  .diag-badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:3px; text-transform:uppercase; margin-right:8px; }
+  .diag-critical-badge { background:#FFF0F0; color:#CC2222; border:1px solid #CC2222; }
+  .diag-title { font-weight:700; font-size:13px; }
+  .diag-finding-header { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  @media print { @page { margin:15mm; size:A4; } body { margin:0; } }
+</style>
+</head>
+<body>
+<h1>ACOM Fault Decoder Report</h1>
+<div class="meta">
+  ${owner  ? '<strong>Owner:</strong> ' + owner + '<br>' : ''}
+  ${serial ? '<strong>Serial Number:</strong> ' + serial + '<br>' : ''}
+  <strong>Date:</strong> ${now}<br>
+  <strong>ACOM Fault Decoder</strong> ${ver} — The DX Shop / GW4WND
+</div>
+${resultsHtml}
+<script>window.onload = function() { window.print(); }<\/script>
+</body>
+</html>`;
+
+    const ts = new Date().toISOString().replace(/[:.]/g,'-').substring(0,19);
+    const filename = `ACOM_Report_${ts}.html`;
+
+    closePrintModal();
+    setStatus('Saving report…');
+    try {
+        const path = await invoke('save_and_open_report', { html: reportHtml, filename });
+        setStatus('✓ Report saved and opened: ' + filename);
+    } catch(err) {
+        setStatus('⚠ Failed to save report: ' + err);
+    }
+}
+
+// Add Print button after successful decode
+function addPrintButton() {
+    // Remove existing print button if present
+    const existing = document.getElementById('printBtn');
+    if (existing) existing.remove();
+
+    const btn = document.createElement('button');
+    btn.id = 'printBtn';
+    btn.className = 'btn-secondary';
+    btn.textContent = '🖨 Print Report';
+    btn.style.cssText = 'position:fixed; bottom:36px; right:16px; z-index:50; font-size:12px; padding:7px 14px;';
+    btn.addEventListener('click', showPrintModal);
+    document.body.appendChild(btn);
 }

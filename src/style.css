@@ -378,3 +378,39 @@ button {
 .cs-valid   { background: #F0FFF0; border-color: #2E8B2E; color: #2E8B2E; }
 .cs-invalid { background: #FFF0F0; border-color: #CC2222; color: #CC2222; }
 .cs-empty   { background: #F8F8F8; border-color: #D0D0D0; color: #AAAAAA; }
+
+/* ── Print styles ────────────────────────────────────────────────────────── */
+@media print {
+    /* Hide everything except the report */
+    .split-left, .status-bar, #printModal, .tab-bar { display: none !important; }
+    body, .split-container, .split-right { display: block !important; width: 100% !important; height: auto !important; overflow: visible !important; }
+    .split-right { padding: 0 !important; background: white !important; }
+    .results-panel { padding: 0 !important; }
+
+    /* Print header */
+    #printHeader { display: block !important; }
+
+    /* Page setup */
+    @page { margin: 15mm; size: A4; }
+    body { font-size: 11px !important; }
+
+    /* Keep cards together where possible */
+    .param-card, .diag-finding, .signal-register { break-inside: avoid; }
+
+    /* Remove box shadows */
+    .param-card, .diag-finding { box-shadow: none !important; }
+
+    /* Make colours print-friendly */
+    .fault-hard { color: #CC0000 !important; }
+    .diag-critical { border-left-color: #CC0000 !important; }
+}
+
+/* Print header - hidden on screen, shown when printing */
+#printHeader {
+    display: none;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #E07820;
+}
+#printHeader h2 { font-size: 16px; color: #E07820; margin-bottom: 4px; }
+#printHeader .print-meta { font-size: 11px; color: #6B6B6B; line-height: 1.8; }
