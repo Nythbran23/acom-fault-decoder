@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // ============================================================================
 // error_codes.rs — Complete ACOM fault code table.
 //

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // ============================================================================
 // parameters.rs — Decoded operational parameter structs.
 //

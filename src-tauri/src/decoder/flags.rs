@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // ============================================================================
 // flags.rs — Bit-flag words from Line 4 of the ACOM hard-fault signature.
 //
