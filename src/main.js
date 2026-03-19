@@ -47,10 +47,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('loadFileBtn').addEventListener('click', loadSignatureFile);
     $('sampleBtn').addEventListener('click', loadSample);
     $('clearBtn').addEventListener('click', clearAll);
-    $('clearHistoryBtn').addEventListener('click', clearHistory);
+    // clearHistoryBtn removed
     $('loadFileBtn').addEventListener('click', loadSignatureFile);
     $('sampleBtn').addEventListener('click', loadSample);
-    $('openFolderBtn').addEventListener('click', openSignaturesFolder);
+    // openFolderBtn removed
 
     // Legacy controls
     $('legacyDecodeBtn').addEventListener('click', decodeLegacy);
