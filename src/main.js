@@ -416,10 +416,10 @@ function renderLegacyResults(sig, diagnosis) {
     const a = sig.analog;
     html += `<div class="param-card"><h4>Analog Parameters</h4>`;
     html += legacyParam('HV Plate Voltage',   `${a.hvm_v} V`,              a.hvm_raw);
-    html += legacyParam('Idle Plate Current', `${a.ipm_ma} mA`,            a.ipm_raw);
+    html += legacyParam('Plate Current',      `${a.ipm_ma} mA`,            a.ipm_raw);
     html += legacyParam('Forward Power',      `${a.pfwd_w.toFixed(1)} W`,  a.pfwd_raw);
     html += legacyParam('Reflected Power',    `${a.rfl_w.toFixed(1)} W`,   a.rfl_raw);
-    html += legacyParam('Input Drive',        `${a.inp_w.toFixed(1)} W`,   a.inp_raw);
+    html += legacyParam('Input Drive',        `${a.inp_w < 0.1 && a.inp_raw > 0 ? a.inp_w.toFixed(3) : a.inp_w.toFixed(1)} W`, a.inp_raw);
     html += legacyParam('PA Anode Avg',       `${a.paav_v.toFixed(0)} V`,  a.paav_raw);
     html += legacyParam('Screen Grid',        `${a.g2c_ma.toFixed(1)} mA`, a.g2c_raw);
     html += legacyParam('Temperature',        `${a.temp_c} °C`,            a.temp_raw);
