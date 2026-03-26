@@ -338,7 +338,7 @@ pub struct LegacyAnalog {
     pub temp_raw: u8,
 }
 
-fn decode_analog(bytes: &[u8; 18]) -> LegacyAnalog {
+fn decode_analog(bytes: &[u8; 18], model: LegacyModel) -> LegacyAnalog {
     // Group 2 → bytes[3..=5]: pfwd, rfl, inp
     let pfwd_raw = bytes[3];
     let rfl_raw  = bytes[4];
@@ -346,6 +346,8 @@ fn decode_analog(bytes: &[u8; 18]) -> LegacyAnalog {
     // Group 3 → bytes[6..=8]: paav, g2c, ipm
     let paav_raw = bytes[6];
     let g2c_raw  = bytes[7];
+    // ACOM 2100: if buffer0 MSB (bit7) is set, apply -70 offset to g2c
+    let g2c_offset: f32 = if model == LegacyModel::Acom2100 && (bytes[12] & 0x80) != 0 { 70.0 } else { 0.0 };
     let ipm_raw  = bytes[8];
     // Group 4 → bytes[9..=11]: ??, hvm, temp
     let hvm_raw  = bytes[10];
@@ -360,7 +362,7 @@ fn decode_analog(bytes: &[u8; 18]) -> LegacyAnalog {
         inp_raw,
         paav_v:   paav_raw as f32 * 12.0,
         paav_raw,
-        g2c_ma:   g2c_raw as f32 / 2.0,
+        g2c_ma:   (g2c_raw as f32 / 2.0) - g2c_offset,
         g2c_raw,
         ipm_ma:   ipm_raw as u16 * 5,
         ipm_raw,
@@ -469,7 +471,7 @@ pub fn parse_legacy(
     let state = AmpState { trip_number, mode, sub_state, state_description, fault_signal };
 
     // ── Analog ────────────────────────────────────────────────────────────────
-    let analog = decode_analog(bytes);
+    let analog = decode_analog(bytes, model);
 
     // ── Registers: bytes 12-16 ────────────────────────────────────────────────
     let registers = decode_registers(bytes[12], bytes[13], bytes[14], bytes[15], bytes[16]);
