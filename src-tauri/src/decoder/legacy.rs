@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 // ============================================================================
 // legacy.rs — ACOM 1000 / 1500 / 2100 hard-fault signature decoder.
 //
@@ -129,10 +128,10 @@ pub struct AmpMode {
 fn parse_mode_code(s: &str) -> AmpMode {
     let code = s.to_lowercase();
     let description = match code.as_str() {
-        "pn" => "Power On",
-        "sb" => "Stand By",
+        "pn" => "Power-On procedure",
+        "sb" => "Stand-By",
         "pr" => "Operate",
-        "tr" => "Oper T/R (Transmit/Receive)",
+        "tr" => "Operate T/R (antenna relay switching)",
         _    => "Unknown",
     };
     AmpMode { code, description }
@@ -200,16 +199,16 @@ pub struct AmpState {
 
 fn decode_state_description(mode: &str, sub: char) -> &'static str {
     match (mode, sub) {
-        ("pn", '0') => "Power-On test — before HV on",
-        ("pn", '2') => "Power-On test — after HV on, 1s after step-start closed",
-        ("sb", '0') => "Stand-By — warm-up period or entering Stand-By",
-        ("sb", '2') => "Stand-By — after warm-up period",
-        ("pr", '0') => "Operate — entering Operate",
-        ("pr", '2') => "Operate — during normal operation",
-        ("tr", '0') => "T/R relay test — Tx to Rx transition",
-        ("tr", '2') => "T/R relay test — Rx to Tx transition",
-        ("tr", '4') => "T/R relay test — during Tx (Operate)",
-        ("tr", '6') => "T/R relay test — during Rx (Operate)",
+        ("pn", '0') => "Power-On procedure — before HV is ON",
+        ("pn", '2') => "Power-On procedure — after HV on, 1s after step-start closed",
+        ("sb", '0') => "Stand-By — during warm-up period or entering Stand-By (from Operate)",
+        ("sb", '2') => "Stand-By — after warm-up period (normal stand-by)",
+        ("pr", '0') => "Entering Operate mode",
+        ("pr", '2') => "During Operate (normal operation)",
+        ("tr", '0') => "Antenna relay test — changing from Tx to Rx (during Operate)",
+        ("tr", '2') => "Antenna relay test — changing from Rx to Tx (during Operate)",
+        ("tr", '4') => "Antenna relay test — during Tx (Operate mode)",
+        ("tr", '6') => "Antenna relay test — during Rx (Operate mode)",
         _            => "Unknown operating state",
     }
 }
@@ -338,7 +337,7 @@ pub struct LegacyAnalog {
     pub temp_raw: u8,
 }
 
-fn decode_analog(bytes: &[u8; 18], model: LegacyModel) -> LegacyAnalog {
+fn decode_analog(bytes: &[u8; 18]) -> LegacyAnalog {
     // Group 2 → bytes[3..=5]: pfwd, rfl, inp
     let pfwd_raw = bytes[3];
     let rfl_raw  = bytes[4];
@@ -346,8 +345,6 @@ fn decode_analog(bytes: &[u8; 18], model: LegacyModel) -> LegacyAnalog {
     // Group 3 → bytes[6..=8]: paav, g2c, ipm
     let paav_raw = bytes[6];
     let g2c_raw  = bytes[7];
-    // ACOM 2100: if buffer0 MSB (bit7) is set, apply -70 offset to g2c
-    let g2c_offset: f32 = if model == LegacyModel::Acom2100 && (bytes[12] & 0x80) != 0 { 70.0 } else { 0.0 };
     let ipm_raw  = bytes[8];
     // Group 4 → bytes[9..=11]: ??, hvm, temp
     let hvm_raw  = bytes[10];
@@ -362,7 +359,7 @@ fn decode_analog(bytes: &[u8; 18], model: LegacyModel) -> LegacyAnalog {
         inp_raw,
         paav_v:   paav_raw as f32 * 12.0,
         paav_raw,
-        g2c_ma:   (g2c_raw as f32 / 2.0) - g2c_offset,
+        g2c_ma:   g2c_raw as f32 / 2.0,
         g2c_raw,
         ipm_ma:   ipm_raw as u16 * 5,
         ipm_raw,
@@ -408,7 +405,7 @@ pub fn parse_legacy(
 
     // ── Group 0: sequence counter (1-2 chars) ────────────────────────────────
     let seq_str = groups[0].trim();
-    let _sequence = u8::from_str_radix(seq_str, 16).unwrap_or(0);
+    let sequence = u8::from_str_radix(seq_str, 16).unwrap_or(0);
 
     // ── Groups 1-6: parse each into 3 bytes, but group 1 chars 3-4 is a
     //    literal mode code not a hex byte
@@ -471,7 +468,7 @@ pub fn parse_legacy(
     let state = AmpState { trip_number, mode, sub_state, state_description, fault_signal };
 
     // ── Analog ────────────────────────────────────────────────────────────────
-    let analog = decode_analog(bytes, model);
+    let analog = decode_analog(bytes);
 
     // ── Registers: bytes 12-16 ────────────────────────────────────────────────
     let registers = decode_registers(bytes[12], bytes[13], bytes[14], bytes[15], bytes[16]);
@@ -585,16 +582,22 @@ pub fn diagnose_legacy(sig: &LegacySignature) -> LegacyDiagnostic {
         match (mode, sub) {
             ("pn", '0') => findings.push(LegacyFinding {
                 severity: "critical",
-                title: "HV failed Power-On self-test (before HV enabled)".to_string(),
-                explanation: format!("HV was expected to be absent during this test phase but                              a voltage was detected, or HV failed to reach threshold. {}",
+                title: "HV fault during Power-On (before HV enabled)".to_string(),
+                explanation: format!("HV fault detected during PN0 — the Power-On test phase                              before HV is switched on. Either HV was present when it should be                              absent, or it failed to reach the required threshold. {}",
                              hvm_context),
                 action: "Check HV PSU. Verify HV enable relay operation.                         Check for HV leakage paths.".to_string(),
             }),
             ("pn", '2') => findings.push(LegacyFinding {
                 severity: "critical",
-                title: "HV failed to stabilise 1 second after step-start".to_string(),
-                explanation: format!("HV did not reach the required level within 1 second                              of the step-start relay closing. {}                              This typically indicates a slow or failing HV PSU.", hvm_context),
-                action: "Check HV PSU output under load.                         Check step-start relay contacts.                         Inspect HV filter capacitors.".to_string(),
+                title: "HV failed to stabilise after step-start closed".to_string(),
+                explanation: format!("HV did not reach the required level within 1 second                              of the step-start relay closing (PN2 test). {}                              This typically indicates a slow or failing HV PSU or a                              step-start relay contact problem.", hvm_context),
+                action: "Check HV PSU output under load.                         Check step-start relay contacts and coil.                         Inspect HV filter capacitors for ESR degradation.".to_string(),
+            }),
+            ("sb", '0') => findings.push(LegacyFinding {
+                severity: "critical",
+                title: "HV fault during Stand-By warm-up or entry from Operate".to_string(),
+                explanation: format!("HV fault during SB0 — Stand-By warm-up period or                              while entering Stand-By from Operate mode. {}                              This may indicate HV regulation instability during                              load transitions.", hvm_context),
+                action: "Check HV PSU regulation under varying load.                         Verify HV relay switching sequence.                         Check HV filter capacitors.".to_string(),
             }),
             _ => findings.push(LegacyFinding {
                 severity: "critical",
@@ -615,8 +618,14 @@ pub fn diagnose_legacy(sig: &LegacySignature) -> LegacyDiagnostic {
         };
 
         let explanation = match (mode, sub) {
+            ("sb", '0') => format!(
+                "Plate current fault during {}. {}                  SB0 occurs during warm-up or when entering Stand-By from Operate.                  A fault here may indicate the tube has not yet stabilised,                  or a bias supply problem causing excess current during the transition.",
+                sig.state.state_description, ipm_context),
             ("sb", _) => format!(
-                "Plate current fault during {}. {}                  In Stand-By, the tube draws a small idle current set by the bias voltage.                  A fault here usually indicates a bias supply problem or tube fault.",
+                "Plate current fault during {}. {}                  In normal Stand-By the tube draws a small idle current set by the bias voltage.                  A fault here usually indicates bias drift or a failing tube.",
+                sig.state.state_description, ipm_context),
+            ("pn", _) => format!(
+                "Plate current fault during {}. {}                  Plate current detected during Power-On testing indicates a tube or                  bias supply fault — current should be zero or minimal at this stage.",
                 sig.state.state_description, ipm_context),
             ("pr", _) | ("tr", _) => format!(
                 "Plate current fault during {}. {}                  Excess plate current during operation indicates the tube is drawing                  more current than permitted — possible drive overdrive,                  bias drift, or tube degradation.",
@@ -773,7 +782,7 @@ mod tests {
         assert_eq!(sig.state.sub_state, '2');
         assert_eq!(sig.state.fault_signal.code, '6');
         assert_eq!(sig.state.fault_signal.signal_name, "ipm");
-        assert_eq!(sig.state.state_description, "Stand-By — after warm-up period");
+        assert_eq!(sig.state.state_description, "Stand-By — after warm-up period (normal stand-by)");
     }
 
     #[test]
@@ -785,7 +794,7 @@ mod tests {
         assert_eq!(sig.state.sub_state, '6');
         assert_eq!(sig.state.fault_signal.code, 'b');
         assert_eq!(sig.state.fault_signal.signal_name, "ORC");
-        assert_eq!(sig.state.state_description, "T/R relay test — during Rx (Operate)");
+        assert_eq!(sig.state.state_description, "Antenna relay test — during Rx (Operate mode)");
     }
 
     #[test]
