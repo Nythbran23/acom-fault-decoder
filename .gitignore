@@ -30,3 +30,5 @@ src-tauri/gen/
 # Environment
 .env
 .env.local
+src-tauri/icons/android/
+src-tauri/icons/ios/

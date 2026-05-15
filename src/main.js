@@ -47,7 +47,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('loadFileBtn').addEventListener('click', loadSignatureFile);
     $('sampleBtn').addEventListener('click', loadSample);
     $('clearBtn').addEventListener('click', clearAll);
-    // clearHistoryBtn removed
+    $('clearHistoryBtn').addEventListener('click', clearHistory);
     $('loadFileBtn').addEventListener('click', loadSignatureFile);
     $('sampleBtn').addEventListener('click', loadSample);
     // openFolderBtn removed
@@ -165,6 +165,38 @@ async function onSignatureComplete(lines) {
     setTimeout(async () => {
         await decodeLines(lines);
         updateCaptureStatus(`⏳ Waiting… (${captureCounter} captured)`);
+        // Update history entry with decoded runtime hours and fault summary
+        const entry = signatureHistory.find(s => s.id === captureCounter);
+        if (entry && lastResult) {
+            const sig = lastResult.signature;
+            entry.hours = sig.clock?.hours ?? 0;
+            entry.hoursRaw = (sig.clock?.hours ?? 0) * 3600 + (sig.clock?.minutes ?? 0) * 60 + (sig.clock?.seconds ?? 0);
+            const faults = sig.active_faults ?? [];
+            if (faults.length === 0) {
+                entry.faultSummary = 'No faults';
+            } else {
+                // Prefer hard faults, then soft, then warnings — show first one
+                const hf = faults.filter(f => f.fault_type === 'HardFault');
+                const sf = faults.filter(f => f.fault_type === 'SoftFault');
+                const wn = faults.filter(f => f.fault_type === 'Warning');
+                const primary = hf[0] ?? sf[0] ?? wn[0];
+                const rest = faults.length - 1;
+                entry.faultSummary = primary.condition + (rest > 0 ? ` +${rest}` : '');
+                entry.faultType = primary.fault_type;
+            }
+            // Sort: highest hoursRaw first; equal hours → highest capture id first (most recent)
+            // Entries with no hoursRaw (decode pending) sort by id descending
+            signatureHistory.sort((a, b) => {
+                const aHas = a.hoursRaw != null, bHas = b.hoursRaw != null;
+                if (!aHas && !bHas) return b.id - a.id;
+                if (!aHas) return -1;  // a has no data → push to top (most recent capture)
+                if (!bHas) return 1;
+                const dh = b.hoursRaw - a.hoursRaw;
+                return dh !== 0 ? dh : b.id - a.id;
+            });
+            renderHistory();
+            addPrintButton();
+        }
     }, 400);
 }
 
@@ -561,15 +593,35 @@ function renderHistory(activeIdx = -1) {
         list.innerHTML = '<div class="history-empty">No signatures captured yet</div>';
         return;
     }
-    list.innerHTML = signatureHistory.map((sig, i) => `
+    list.innerHTML = signatureHistory.map((sig, i) => {
+        // Show most meaningful time unit - skip zero hours
+        let hoursLabel;
+        if (sig.hours == null) {
+            hoursLabel = '—';
+        } else if (sig.hours > 0) {
+            hoursLabel = `${sig.hours}h`;
+        } else if (sig.hoursRaw != null && sig.hoursRaw >= 60) {
+            hoursLabel = `${Math.floor(sig.hoursRaw / 60)}m`;
+        } else if (sig.hoursRaw != null && sig.hoursRaw > 0) {
+            hoursLabel = `${sig.hoursRaw}s`;
+        } else {
+            hoursLabel = '0h';
+        }
+        const hours = hoursLabel;
+        const fault = sig.faultSummary ?? '…';
+        const ftCls = sig.faultType === 'HardFault' ? 'fault-hard'
+                    : sig.faultType === 'SoftFault'  ? 'fault-soft'
+                    : sig.faultType === 'Warning'    ? 'fault-warn'
+                    : '';
+        return `
         <div class="history-item ${i === activeIdx ? 'active' : ''}" onclick="loadFromHistory(${i})">
             <div class="history-meta">
-                <span class="history-id">#${sig.id}</span>
+                <span class="history-hours">${hours}</span>
                 <span class="history-time">${sig.timestamp.toLocaleTimeString()}</span>
             </div>
-            <div class="history-preview">${sig.lines[0].substring(0,28)}…</div>
-        </div>
-    `).join('');
+            <div class="history-fault ${ftCls}">${fault}</div>
+        </div>`;
+    }).join('');
 }
 
 function loadFromHistory(index) {

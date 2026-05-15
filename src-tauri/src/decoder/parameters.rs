@@ -33,6 +33,10 @@ pub enum AmpMode {
 
 impl AmpMode {
     pub fn from_raw(val: u16) -> Self {
+        // For simple mode values 0x0000-0x0008, match directly.
+        // For compound values (>= 0x0010), the main operating mode is encoded
+        // in bits 4-7 of the lower byte; lower 4 bits carry additional state flags.
+        // Confirmed from ACOM 1200S XLS: 0x0051=Operate, 0x0061=Tuning.
         match val {
             0x0000 => Self::Off,
             0x0001 => Self::Initializing,
@@ -43,6 +47,21 @@ impl AmpMode {
             0x0006 => Self::Tuning,
             0x0007 => Self::Fault,
             0x0008 => Self::ServiceTest,
+            0x0041 => Self::ServiceTest,  // Confirmed: ACOM service mode capture value
+            _ if val >= 0x0010 => {
+                // Decode main mode from bits 4-7 of lower byte
+                match (val >> 4) & 0xF {
+                    0 => Self::Off,
+                    1 => Self::Initializing,
+                    2 => Self::Standby,
+                    3 => Self::WarmUp,
+                    4 => Self::Ready,
+                    5 => Self::Operate,
+                    6 => Self::Tuning,
+                    7 => Self::Fault,
+                    _ => Self::Unknown(val),
+                }
+            }
             _ => Self::Unknown(val),
         }
     }

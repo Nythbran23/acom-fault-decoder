@@ -100,24 +100,16 @@ pub fn diagnose(sig: &AcomSignature) -> DiagnosticReport {
     }
 
     // ── Rule: Service/factory mode ────────────────────────────────────────────
-    let mode_val = match sig.amp_mode {
-        crate::decoder::parameters::AmpMode::ServiceTest => Some(0u16),
-        crate::decoder::parameters::AmpMode::Unknown(v) => Some(v),
-        _ => None,
-    };
-    if let Some(v) = mode_val {
-        if v >= 0x0040 {
-            findings.push(Finding {
-                severity: FindingSeverity::Info,
-                title: "Fault captured in service or factory mode",
-                explanation: format!(
-                    "Amp mode 0x{:04X} indicates the amplifier was not in normal operating mode \
-                     when the fault was logged. Protection thresholds and operating limits \
-                     may differ from standard operation.", v),
-                action: "Confirm with the operator whether a service procedure was in progress. \
-                         Fault data may reflect test conditions rather than real-world failure.".to_string(),
-            });
-        }
+    // Only flag confirmed service mode (0x0008 or 0x0041 — both map to ServiceTest).
+    // Other unknown mode values are real operating states (e.g. 0x0051=Operate,
+    // 0x0061=Tuning) captured during a fault; do not flag these as service mode.
+    if matches!(sig.amp_mode, crate::decoder::parameters::AmpMode::ServiceTest) {
+        findings.push(Finding {
+            severity: FindingSeverity::Info,
+            title: "Fault captured in service or factory mode",
+            explanation: "The amplifier was in service/test mode when this fault was logged.                          Protection thresholds and operating limits may differ from                          normal operation.".to_string(),
+            action: "Confirm with the operator whether a service procedure was in progress.                      Fault data may reflect test conditions rather than real-world failure.".to_string(),
+        });
     }
 
     // ── Rule: 5V fault with voltage reading normal (transient droop) ──────────

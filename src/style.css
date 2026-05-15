@@ -129,6 +129,8 @@ button {
 }
 .history-item:hover { border-color: #E07820; background: #FFF8F2; }
 .history-item.active { border-color: #E07820; background: #FFF3E8; }
+.history-hours { font-size:13px; font-weight:700; color:#E07820; font-family:monospace; }
+.history-fault { font-size:11px; color:#6B6B6B; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 .history-meta { display: flex; justify-content: space-between; margin-bottom: 3px; }
 .history-id   { color: #E07820; font-weight: 700; font-size: 12px; }
